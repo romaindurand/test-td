@@ -25,11 +25,11 @@
 		</button>
 
 		<button
-			class="bunny-button yellow {$selectedBunnyType === 'yellow' ? 'active' : ''}"
-			on:click={() => selectBunny('yellow')}
+			class="bunny-button green {$selectedBunnyType === 'green' ? 'active' : ''}"
+			on:click={() => selectBunny('green')}
 		>
-			<div class="bunny-icon yellow-bunny">🐰</div>
-			<span>Lapin Jaune</span>
+			<div class="bunny-icon green-bunny">🐰</div>
+			<span>Lapin Vert</span>
 			<small>Tour de défense</small>
 		</button>
 
@@ -40,6 +40,24 @@
 			<div class="wall-icon" style="transform: rotate({$wallRotation}deg)">🧱</div>
 			<span>Mur</span>
 			<small>Obstacle</small>
+		</button>
+
+		<button
+			class="bunny-button none {$selectedBunnyType === 'none' ? 'active' : ''}"
+			on:click={() => selectBunny('none')}
+		>
+			<div class="none-icon">👆</div>
+			<span>Curseur libre</span>
+			<small>Examiner</small>
+		</button>
+
+		<button
+			class="bunny-button test-line {$selectedBunnyType === 'test-line' ? 'active' : ''}"
+			on:click={() => selectBunny('test-line')}
+		>
+			<div class="test-line-icon">🎯</div>
+			<span>Test Ligne</span>
+			<small>Vérifier obstacles</small>
 		</button>
 	</div>
 
@@ -120,8 +138,8 @@
 		background: radial-gradient(circle, #ff4444, #cc0000);
 	}
 
-	.yellow-bunny {
-		background: radial-gradient(circle, #ffff44, #cccc00);
+	.green-bunny {
+		background: radial-gradient(circle, #44ff44, #00cc00);
 	}
 
 	.wall-icon {
@@ -135,6 +153,18 @@
 		background: radial-gradient(circle, #8b4513, #654321);
 		filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.5));
 		transition: transform 0.2s ease;
+	}
+
+	.none-icon {
+		font-size: 24px;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		background: radial-gradient(circle, #888888, #555555);
+		filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.5));
 	}
 
 	.bunny-button span {
@@ -153,12 +183,25 @@
 		animation: pulse-red 1.5s ease-in-out infinite;
 	}
 
-	.bunny-button.yellow.active .bunny-icon {
-		animation: pulse-yellow 1.5s ease-in-out infinite;
+	.bunny-button.green.active .bunny-icon {
+		animation: pulse-green 1.5s ease-in-out infinite;
 	}
 
 	.bunny-button.wall.active .wall-icon {
 		animation: pulse-wall 1.5s ease-in-out infinite;
+	}
+
+	.bunny-button.none.active .none-icon {
+		animation: pulse-none 1.5s ease-in-out infinite;
+	}
+
+	.bunny-button.test-line.active .test-line-icon {
+		animation: pulse-test-line 1.5s ease-in-out infinite;
+	}
+
+	.test-line-icon {
+		font-size: 24px;
+		user-select: none;
 	}
 
 	.rotation-info {
@@ -192,13 +235,13 @@
 		}
 	}
 
-	@keyframes pulse-yellow {
+	@keyframes pulse-green {
 		0%,
 		100% {
-			box-shadow: 0 0 5px rgba(255, 255, 68, 0.5);
+			box-shadow: 0 0 5px rgba(68, 255, 68, 0.5);
 		}
 		50% {
-			box-shadow: 0 0 15px rgba(255, 255, 68, 0.8);
+			box-shadow: 0 0 15px rgba(68, 255, 68, 0.8);
 		}
 	}
 
@@ -209,6 +252,26 @@
 		}
 		50% {
 			box-shadow: 0 0 15px rgba(139, 69, 19, 0.8);
+		}
+	}
+
+	@keyframes pulse-none {
+		0%,
+		100% {
+			box-shadow: 0 0 5px rgba(136, 136, 136, 0.5);
+		}
+		50% {
+			box-shadow: 0 0 15px rgba(136, 136, 136, 0.8);
+		}
+	}
+
+	@keyframes pulse-test-line {
+		0%,
+		100% {
+			box-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
+		}
+		50% {
+			box-shadow: 0 0 15px rgba(0, 255, 255, 0.8);
 		}
 	}
 </style>
