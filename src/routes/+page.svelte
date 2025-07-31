@@ -15,11 +15,10 @@
 	} from '../lib/stores/gameState';
 	import { PathfindingManager } from '../lib/simple-pathfinding-manager';
 	import type { Point } from '../lib/pathfinding';
-	import { get } from 'svelte/store';
 
 	let root: HTMLDivElement;
 	let pathfinder: PathfindingManager;
-	let previewSprite: any = null;
+	let previewSprite: Sprite | null = null;
 	let app: Application;
 	let expandedObstacleGraphics: (Graphics | Text)[] = [];
 	let expandedObstacleContainer: Container;
@@ -27,7 +26,7 @@
 	let hoverPathContainer: Container;
 	let testLineGraphics: (Graphics | Text)[] = [];
 	let mousePosition: Point = { x: 0, y: 0 };
-	let centralBunny: any; // Pour obtenir la position du lapin vert
+	let centralBunny: Sprite; // Pour obtenir la position du lapin vert
 
 	// Throttle variables for test line optimization
 	let testLineThrottleTimer: number | null = null;
@@ -293,7 +292,7 @@
 
 				// Redraw with the new path
 				if (newOptimalPath) {
-					drawTestLineGraphics(newOptimalPath, fromPos, toPos);
+					drawTestLineGraphics(newOptimalPath);
 				}
 			}, 16);
 
@@ -307,7 +306,7 @@
 
 		// Draw immediately with cached or current optimal path
 		if (optimalPath && optimalPath.length > 1) {
-			drawTestLineGraphics(optimalPath, fromPos, toPos);
+			drawTestLineGraphics(optimalPath);
 		} else {
 			drawDirectLine(fromPos, toPos);
 		}
@@ -317,7 +316,7 @@
 	}
 
 	// Helper function to draw the test line graphics
-	function drawTestLineGraphics(optimalPath: Point[], fromPos: Point, toPos: Point) {
+	function drawTestLineGraphics(optimalPath: Point[]) {
 		// Clear any existing graphics first
 		clearTestLine();
 
@@ -428,7 +427,7 @@
 		const originalObstacles = pathfinder.getObstacles(); // Récupérer les obstacles originaux
 
 		// Draw original obstacles in orange transparent for debugging
-		originalObstacles.forEach((obstacle, obstacleIndex) => {
+		originalObstacles.forEach((obstacle) => {
 			if (obstacle.length < 3) return;
 
 			const originalObstacleGraphic = new Graphics();
@@ -467,7 +466,7 @@
 			expandedObstacleGraphics.push(obstacleGraphic);
 
 			// Add interactive corner points
-			obstacle.forEach((corner, cornerIndex) => {
+			obstacle.forEach((corner) => {
 				const cornerGraphic = new Graphics();
 				cornerGraphic.beginFill(0x0066cc, 0.8);
 				cornerGraphic.drawCircle(corner.x, corner.y, 8); // Augmenter la taille pour déboguer
@@ -517,7 +516,6 @@
 				cornerGraphic.on('pointerover', () => {
 					// Debug: tester directement la détection d'intersection
 					const goalPos = pathfinder.getGoal();
-					const pathClear = pathfinder.testPathClear(corner, goalPos);
 					const path = pathfinder.getBlueCornerPath(corner);
 					if (path && path.length > 1) {
 						drawHoverPath(path);
@@ -556,6 +554,7 @@
 			await app.init({ background: '#1099bb', resizeTo: window });
 
 			// Append the application canvas to the document body
+			// eslint-disable-next-line svelte/no-dom-manipulating
 			root.appendChild(app.canvas);
 
 			// Load the bunny texture
@@ -568,7 +567,7 @@
 			centralBunny.x = margin + Math.random() * (app.screen.width - 2 * margin);
 			centralBunny.y = margin + Math.random() * (app.screen.height - 2 * margin);
 			centralBunny.anchor.set(0.5);
-			centralBunny.tint = 0x00ff00; // Vert pour le distinguer
+			centralBunny.tint = 0x00ff00; // Vert pour le lapin cible
 			app.stage.addChild(centralBunny);
 
 			// Create pathfinding system
@@ -740,7 +739,7 @@
 				} else if (selectedType === 'green') {
 					previewSprite = new Sprite(texture);
 					previewSprite.anchor.set(0.5);
-					previewSprite.tint = 0x00ff00; // Vert
+					previewSprite.tint = 0xffff00; // Jaune
 					previewSprite.alpha = 0.6; // Semi-transparent
 				} else if (selectedType === 'wall') {
 					const wallWidth = 80;
@@ -911,6 +910,7 @@
 			}
 
 			// Cleanup on component unmount
+			// eslint-disable-next-line svelte/no-dom-manipulating
 			root.removeChild(app.canvas);
 			app.destroy(true, { children: true });
 		};

@@ -62,12 +62,12 @@ export class Pathfinding {
 				return true;
 			}
 		}
-		
+
 		// Also check if start or end point is inside the polygon
 		if (this.isPointInPolygon(start, polygon) || this.isPointInPolygon(end, polygon)) {
 			return true;
 		}
-		
+
 		return false;
 	}
 
@@ -75,13 +75,17 @@ export class Pathfinding {
 	private lineSegmentsIntersect(p1: Point, q1: Point, p2: Point, q2: Point): boolean {
 		const orientation = (p: Point, q: Point, r: Point): number => {
 			const val = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
-			if (val === 0) return 0;  // collinear
-			return (val > 0) ? 1 : 2; // clockwise or counterclockwise
+			if (val === 0) return 0; // collinear
+			return val > 0 ? 1 : 2; // clockwise or counterclockwise
 		};
 
 		const onSegment = (p: Point, q: Point, r: Point): boolean => {
-			return q.x <= Math.max(p.x, r.x) && q.x >= Math.min(p.x, r.x) &&
-				   q.y <= Math.max(p.y, r.y) && q.y >= Math.min(p.y, r.y);
+			return (
+				q.x <= Math.max(p.x, r.x) &&
+				q.x >= Math.min(p.x, r.x) &&
+				q.y <= Math.max(p.y, r.y) &&
+				q.y >= Math.min(p.y, r.y)
+			);
 		};
 
 		const o1 = orientation(p1, q1, p2);
@@ -153,11 +157,15 @@ export class Pathfinding {
 		for (let i = 0; i < nearestObstacle.length; i++) {
 			const j = (i + 1) % nearestObstacle.length;
 			const distance = this.getDistanceToLineSegment(point, nearestObstacle[i], nearestObstacle[j]);
-			
+
 			if (distance < closestDistance) {
 				closestDistance = distance;
 				// Calculate the actual closest point on the line segment
-				closestPoint = this.getClosestPointOnLineSegment(point, nearestObstacle[i], nearestObstacle[j]);
+				closestPoint = this.getClosestPointOnLineSegment(
+					point,
+					nearestObstacle[i],
+					nearestObstacle[j]
+				);
 			}
 		}
 
@@ -179,7 +187,7 @@ export class Pathfinding {
 		// Normalize and scale to push to 5px distance
 		const targetDistance = 10;
 		const scale = targetDistance / distance;
-		
+
 		return {
 			x: dx * scale,
 			y: dy * scale
@@ -194,14 +202,14 @@ export class Pathfinding {
 
 		const dot = A * C + B * D;
 		const lenSq = C * C + D * D;
-		
+
 		if (lenSq === 0) {
 			// Line segment is actually a point
 			return lineStart;
 		}
 
 		const param = Math.max(0, Math.min(1, dot / lenSq));
-		
+
 		return {
 			x: lineStart.x + param * C,
 			y: lineStart.y + param * D
@@ -211,8 +219,13 @@ export class Pathfinding {
 	private isPointInPolygon(point: Point, polygon: Point[]): boolean {
 		let inside = false;
 		for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-			if (((polygon[i].y > point.y) !== (polygon[j].y > point.y)) &&
-				(point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x)) {
+			if (
+				polygon[i].y > point.y !== polygon[j].y > point.y &&
+				point.x <
+					((polygon[j].x - polygon[i].x) * (point.y - polygon[i].y)) /
+						(polygon[j].y - polygon[i].y) +
+						polygon[i].x
+			) {
 				inside = !inside;
 			}
 		}
@@ -266,7 +279,7 @@ export class Pathfinding {
 
 		const dot = A * C + B * D;
 		const lenSq = C * C + D * D;
-		
+
 		if (lenSq === 0) {
 			// Line segment is actually a point
 			return Math.sqrt(A * A + B * B);
@@ -302,23 +315,23 @@ export class Pathfinding {
 	private getNeighbors(node: Node): { point: Point; cost: number }[] {
 		const neighbors: { point: Point; cost: number }[] = [];
 		const directions = [
-			{ x: -1, y: 0, cost: 1 },        // Gauche
-			{ x: 1, y: 0, cost: 1 },         // Droite
-			{ x: 0, y: -1, cost: 1 },        // Haut
-			{ x: 0, y: 1, cost: 1 },         // Bas
+			{ x: -1, y: 0, cost: 1 }, // Gauche
+			{ x: 1, y: 0, cost: 1 }, // Droite
+			{ x: 0, y: -1, cost: 1 }, // Haut
+			{ x: 0, y: 1, cost: 1 }, // Bas
 			{ x: -1, y: -1, cost: Math.SQRT2 }, // Diagonale haut-gauche
-			{ x: 1, y: -1, cost: Math.SQRT2 },  // Diagonale haut-droite
-			{ x: -1, y: 1, cost: Math.SQRT2 },  // Diagonale bas-gauche
-			{ x: 1, y: 1, cost: Math.SQRT2 }    // Diagonale bas-droite
+			{ x: 1, y: -1, cost: Math.SQRT2 }, // Diagonale haut-droite
+			{ x: -1, y: 1, cost: Math.SQRT2 }, // Diagonale bas-gauche
+			{ x: 1, y: 1, cost: Math.SQRT2 } // Diagonale bas-droite
 		];
 
 		for (const dir of directions) {
 			const newX = node.x + dir.x * this.gridSize;
 			const newY = node.y + dir.y * this.gridSize;
 			if (this.isValidPositionForPathfinding(newX, newY)) {
-				neighbors.push({ 
-					point: { x: newX, y: newY }, 
-					cost: dir.cost * this.gridSize 
+				neighbors.push({
+					point: { x: newX, y: newY },
+					cost: dir.cost * this.gridSize
 				});
 			}
 		}
@@ -377,7 +390,7 @@ export class Pathfinding {
 			for (const neighborData of neighbors) {
 				const neighbor = neighborData.point;
 				const moveCost = neighborData.cost;
-				
+
 				const neighborKey = `${neighbor.x},${neighbor.y}`;
 				if (closedSet.has(neighborKey)) {
 					continue;
@@ -387,7 +400,7 @@ export class Pathfinding {
 				const h = this.heuristic(neighbor, goalNode);
 				const f = g + h;
 
-				const existingNode = openSet.find(n => n.x === neighbor.x && n.y === neighbor.y);
+				const existingNode = openSet.find((n) => n.x === neighbor.x && n.y === neighbor.y);
 				if (!existingNode) {
 					openSet.push({
 						x: neighbor.x,
@@ -408,7 +421,7 @@ export class Pathfinding {
 		// No path found, try to find closest accessible point to goal
 		let closestNode: Node | null = null;
 		let closestDistance = Infinity;
-		
+
 		// Find the node in closedSet that's closest to the goal
 		for (const nodeKey of closedSet) {
 			const [x, y] = nodeKey.split(',').map(Number);
@@ -417,14 +430,19 @@ export class Pathfinding {
 				closestDistance = distance;
 				// Find the actual node with this position
 				closestNode = {
-					x, y, g: 0, h: 0, f: 0, parent: null
+					x,
+					y,
+					g: 0,
+					h: 0,
+					f: 0,
+					parent: null
 				};
 			}
 		}
-		
+
 		// If we found a closer point than the start, try to create a path to it
 		if (closestNode && closestDistance < this.heuristic(start, goalNode)) {
-			// This is a simplified approach - in a real implementation you'd want to 
+			// This is a simplified approach - in a real implementation you'd want to
 			// reconstruct the path properly, but for now return a direct path
 			return [start, { x: closestNode.x, y: closestNode.y }, goal];
 		}

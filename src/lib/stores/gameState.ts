@@ -16,7 +16,7 @@ export const gameSpeed = writable(1);
 
 // Fonction pour réduire la santé
 export function takeDamage(damage: number = 1) {
-	playerHealth.update(health => Math.max(0, health - damage));
+	playerHealth.update((health) => Math.max(0, health - damage));
 }
 
 // Fonction pour reset la santé
@@ -36,7 +36,7 @@ export function setWallRotating(rotating: boolean) {
 
 // Fonction pour faire tourner le mur
 export function rotateWall() {
-	wallRotation.update(angle => (angle + 45) % 360);
+	wallRotation.update((angle) => (angle + 45) % 360);
 }
 
 // Fonction pour changer la vitesse du jeu

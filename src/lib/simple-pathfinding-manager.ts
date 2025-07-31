@@ -25,7 +25,7 @@ export class PathfindingManager {
 
 	private calculatePathDistance(path: Point[]): number {
 		if (path.length < 2) return Infinity;
-		
+
 		let totalDistance = 0;
 		for (let i = 0; i < path.length - 1; i++) {
 			totalDistance += this.calculateDistance(path[i], path[i + 1]);
@@ -36,7 +36,7 @@ export class PathfindingManager {
 	setGoal(goal: Point) {
 		this.goalPosition = goal;
 		this.obstacleSystem.setGoal(goal);
-		
+
 		// Recalculate blue corner paths locally
 		this.calculateBlueCornerPaths();
 	}
@@ -48,7 +48,7 @@ export class PathfindingManager {
 	addObstacle(points: Point[]) {
 		this.obstacleSystem.addObstacle(points);
 		this.pathfinding.addObstacle(points);
-		
+
 		// Recalculate blue corner paths locally
 		this.calculateBlueCornerPaths();
 	}
@@ -75,8 +75,13 @@ export class PathfindingManager {
 		// Calculate shortest path from each blue corner to goal using Dijkstra
 		for (const corner of allBlueCorners) {
 			const cornerKey = this.getCornerKey(corner);
-			const shortestPathResult = this.findShortestPathViaBlueCorners(corner, this.goalPosition, graph, allNodes);
-			
+			const shortestPathResult = this.findShortestPathViaBlueCorners(
+				corner,
+				this.goalPosition,
+				graph,
+				allNodes
+			);
+
 			if (shortestPathResult.path.length > 0 && shortestPathResult.distance < Infinity) {
 				this.blueCornerPaths.set(cornerKey, shortestPathResult.path);
 				this.blueCornerDistances.set(cornerKey, shortestPathResult.distance);
@@ -87,11 +92,18 @@ export class PathfindingManager {
 			}
 		}
 
-		console.log(`🎯 Blue corner paths calculated locally: ${allBlueCorners.length} corners processed`);
+		console.log(
+			`🎯 Blue corner paths calculated locally: ${allBlueCorners.length} corners processed`
+		);
 	}
 
-	private buildBlueCornerGraph(nodes: Point[]): Map<number, { point: Point; connections: { to: number; distance: number }[] }> {
-		const graph = new Map<number, { point: Point; connections: { to: number; distance: number }[] }>();
+	private buildBlueCornerGraph(
+		nodes: Point[]
+	): Map<number, { point: Point; connections: { to: number; distance: number }[] }> {
+		const graph = new Map<
+			number,
+			{ point: Point; connections: { to: number; distance: number }[] }
+		>();
 
 		// Initialize all nodes in the graph
 		for (let i = 0; i < nodes.length; i++) {
@@ -107,7 +119,7 @@ export class PathfindingManager {
 				// Check if there's a clear path between the two nodes
 				if (this.obstacleSystem.testPathClear(nodeA, nodeB)) {
 					const distance = this.calculateDistance(nodeA, nodeB);
-					
+
 					// Add bidirectional connection
 					graph.get(i)!.connections.push({ to: j, distance });
 					graph.get(j)!.connections.push({ to: i, distance });
@@ -118,13 +130,18 @@ export class PathfindingManager {
 		return graph;
 	}
 
-	private findShortestPathViaBlueCorners(start: Point, goal: Point, graph: Map<number, { point: Point; connections: { to: number; distance: number }[] }>, nodes: Point[]): { path: Point[]; distance: number } {
+	private findShortestPathViaBlueCorners(
+		start: Point,
+		goal: Point,
+		graph: Map<number, { point: Point; connections: { to: number; distance: number }[] }>,
+		nodes: Point[]
+	): { path: Point[]; distance: number } {
 		// Find indices of start and goal in nodes array
-		const startIndex = nodes.findIndex(node => 
-			Math.abs(node.x - start.x) < 0.1 && Math.abs(node.y - start.y) < 0.1
+		const startIndex = nodes.findIndex(
+			(node) => Math.abs(node.x - start.x) < 0.1 && Math.abs(node.y - start.y) < 0.1
 		);
-		const goalIndex = nodes.findIndex(node => 
-			Math.abs(node.x - goal.x) < 0.1 && Math.abs(node.y - goal.y) < 0.1
+		const goalIndex = nodes.findIndex(
+			(node) => Math.abs(node.x - goal.x) < 0.1 && Math.abs(node.y - goal.y) < 0.1
 		);
 
 		if (startIndex === -1 || goalIndex === -1) {
@@ -146,7 +163,7 @@ export class PathfindingManager {
 			// Find unvisited node with minimum distance
 			let currentIndex = -1;
 			let minDistance = Infinity;
-			
+
 			for (const index of unvisited) {
 				const distance = distances.get(index)!;
 				if (distance < minDistance) {
@@ -192,7 +209,11 @@ export class PathfindingManager {
 		}
 
 		// Only return path if it starts from the correct corner
-		if (path.length > 0 && Math.abs(path[0].x - start.x) < 0.1 && Math.abs(path[0].y - start.y) < 0.1) {
+		if (
+			path.length > 0 &&
+			Math.abs(path[0].x - start.x) < 0.1 &&
+			Math.abs(path[0].y - start.y) < 0.1
+		) {
 			return { path, distance: distances.get(goalIndex) || Infinity };
 		}
 
@@ -230,7 +251,10 @@ export class PathfindingManager {
 	}
 
 	// Test line intersections with detailed intersection points
-	testLineIntersections(from: Point, to: Point): { intersects: boolean; intersectionPoints: Point[] } {
+	testLineIntersections(
+		from: Point,
+		to: Point
+	): { intersects: boolean; intersectionPoints: Point[] } {
 		return this.obstacleSystem.testLineIntersections(from, to);
 	}
 

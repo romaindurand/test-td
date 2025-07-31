@@ -3,7 +3,6 @@
 		selectedBunnyType,
 		setSelectedBunnyType,
 		type BunnyType,
-		isRotatingWall,
 		wallRotation
 	} from '../stores/gameState';
 
@@ -25,11 +24,11 @@
 		</button>
 
 		<button
-			class="bunny-button green {$selectedBunnyType === 'green' ? 'active' : ''}"
+			class="bunny-button yellow {$selectedBunnyType === 'green' ? 'active' : ''}"
 			on:click={() => selectBunny('green')}
 		>
-			<div class="bunny-icon green-bunny">🐰</div>
-			<span>Lapin Vert</span>
+			<div class="bunny-icon yellow-bunny">🐰</div>
+			<span>Lapin Jaune</span>
 			<small>Tour de défense</small>
 		</button>
 
@@ -138,8 +137,8 @@
 		background: radial-gradient(circle, #ff4444, #cc0000);
 	}
 
-	.green-bunny {
-		background: radial-gradient(circle, #44ff44, #00cc00);
+	.yellow-bunny {
+		background: radial-gradient(circle, #ffff44, #cccc00);
 	}
 
 	.wall-icon {
@@ -183,8 +182,8 @@
 		animation: pulse-red 1.5s ease-in-out infinite;
 	}
 
-	.bunny-button.green.active .bunny-icon {
-		animation: pulse-green 1.5s ease-in-out infinite;
+	.bunny-button.yellow.active .bunny-icon {
+		animation: pulse-yellow 1.5s ease-in-out infinite;
 	}
 
 	.bunny-button.wall.active .wall-icon {
@@ -235,13 +234,13 @@
 		}
 	}
 
-	@keyframes pulse-green {
+	@keyframes pulse-yellow {
 		0%,
 		100% {
-			box-shadow: 0 0 5px rgba(68, 255, 68, 0.5);
+			box-shadow: 0 0 5px rgba(255, 255, 68, 0.5);
 		}
 		50% {
-			box-shadow: 0 0 15px rgba(68, 255, 68, 0.8);
+			box-shadow: 0 0 15px rgba(255, 255, 68, 0.8);
 		}
 	}
 

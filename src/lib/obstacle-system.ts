@@ -22,7 +22,7 @@ export class ObstacleSystem {
 
 	private updateExpandedObstacles() {
 		this.expandedObstacles = [];
-		
+
 		for (const obstacle of this.obstacles) {
 			const expandedObstacle = this.expandPolygon(obstacle, 30);
 			this.expandedObstacles.push(expandedObstacle);
@@ -38,21 +38,21 @@ export class ObstacleSystem {
 
 		for (let i = 0; i < polygon.length; i++) {
 			const vertex = polygon[i];
-			
+
 			// Vector from centroid to vertex
 			const dx = vertex.x - centroid.x;
 			const dy = vertex.y - centroid.y;
 			const length = Math.sqrt(dx * dx + dy * dy);
-			
+
 			if (length === 0) {
 				expandedVertices.push(vertex);
 				continue;
 			}
-			
+
 			// Normalize and extend by margin
 			const normalizedDx = dx / length;
 			const normalizedDy = dy / length;
-			
+
 			expandedVertices.push({
 				x: vertex.x + normalizedDx * margin,
 				y: vertex.y + normalizedDy * margin
@@ -65,12 +65,12 @@ export class ObstacleSystem {
 	private getPolygonCentroid(polygon: Point[]): Point {
 		let centerX = 0;
 		let centerY = 0;
-		
+
 		for (const point of polygon) {
 			centerX += point.x;
 			centerY += point.y;
 		}
-		
+
 		return {
 			x: centerX / polygon.length,
 			y: centerY / polygon.length
@@ -82,21 +82,25 @@ export class ObstacleSystem {
 		// If the area is positive, the polygon is counter-clockwise
 		// If the area is negative, the polygon is clockwise
 		let signedArea = 0;
-		
+
 		for (let i = 0; i < polygon.length; i++) {
 			const curr = polygon[i];
 			const next = polygon[(i + 1) % polygon.length];
 			signedArea += (next.x - curr.x) * (next.y + curr.y);
 		}
-		
+
 		return signedArea < 0; // Negative area means clockwise in screen coordinates
 	}
 
 	private getLineIntersection(p1: Point, q1: Point, p2: Point, q2: Point): Point | null {
-		const x1 = p1.x, y1 = p1.y;
-		const x2 = q1.x, y2 = q1.y;
-		const x3 = p2.x, y3 = p2.y;
-		const x4 = q2.x, y4 = q2.y;
+		const x1 = p1.x,
+			y1 = p1.y;
+		const x2 = q1.x,
+			y2 = q1.y;
+		const x3 = p2.x,
+			y3 = p2.y;
+		const x4 = q2.x,
+			y4 = q2.y;
 
 		const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
 		if (Math.abs(denom) < 1e-10) {
@@ -132,8 +136,12 @@ export class ObstacleSystem {
 		}
 
 		function onSegment(p: Point, q: Point, r: Point): boolean {
-			return q.x <= Math.max(p.x, r.x) && q.x >= Math.min(p.x, r.x) &&
-				   q.y <= Math.max(p.y, r.y) && q.y >= Math.min(p.y, r.y);
+			return (
+				q.x <= Math.max(p.x, r.x) &&
+				q.x >= Math.min(p.x, r.x) &&
+				q.y <= Math.max(p.y, r.y) &&
+				q.y >= Math.min(p.y, r.y)
+			);
 		}
 
 		const o1 = orientation(p1, q1, p2);
@@ -174,7 +182,10 @@ export class ObstacleSystem {
 		return true;
 	}
 
-	testLineIntersections(from: Point, to: Point): { intersects: boolean; intersectionPoints: Point[] } {
+	testLineIntersections(
+		from: Point,
+		to: Point
+	): { intersects: boolean; intersectionPoints: Point[] } {
 		let intersects = false;
 		const intersectionPoints: Point[] = [];
 
@@ -195,10 +206,14 @@ export class ObstacleSystem {
 	}
 
 	private getLineSegmentIntersection(p1: Point, q1: Point, p2: Point, q2: Point): Point | null {
-		const x1 = p1.x, y1 = p1.y;
-		const x2 = q1.x, y2 = q1.y;
-		const x3 = p2.x, y3 = p2.y;
-		const x4 = q2.x, y4 = q2.y;
+		const x1 = p1.x,
+			y1 = p1.y;
+		const x2 = q1.x,
+			y2 = q1.y;
+		const x3 = p2.x,
+			y3 = p2.y;
+		const x4 = q2.x,
+			y4 = q2.y;
 
 		const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
 		if (Math.abs(denom) < 1e-10) {
