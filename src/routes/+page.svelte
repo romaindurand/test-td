@@ -746,12 +746,11 @@
 			// Load the bunny texture
 			const texture = await Assets.load('https://pixijs.com/assets/bunny.png');
 
-			// Create the central bunny (tower) with random position
+			// Create the central bunny (tower) at center of screen
 			centralBunny = new Sprite(texture);
-			// Position aléatoire dans la zone centrale de l'écran (évite les bords)
-			const margin = 100; // Marge pour éviter que le lapin soit trop près des bords
-			centralBunny.x = margin + Math.random() * (app.screen.width - 2 * margin);
-			centralBunny.y = margin + Math.random() * (app.screen.height - 2 * margin);
+			// Position au centre de l'écran
+			centralBunny.x = app.screen.width / 2;
+			centralBunny.y = app.screen.height / 2;
 			centralBunny.anchor.set(0.5);
 			centralBunny.tint = 0x00ff00; // Vert pour le lapin cible
 			app.stage.addChild(centralBunny);
@@ -764,6 +763,7 @@
 
 			// 10 random blob obstacles
 			const obstacles: Graphics[] = [];
+			const margin = 100; // Marge pour éviter que les obstacles soient trop près des bords
 			for (let i = 0; i < 10; i++) {
 				const obstacle = new Graphics();
 
