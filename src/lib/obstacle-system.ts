@@ -24,7 +24,7 @@ export class ObstacleSystem {
 		this.expandedObstacles = [];
 
 		for (const obstacle of this.obstacles) {
-			const expandedObstacle = this.expandPolygon(obstacle, 30);
+			const expandedObstacle = this.expandPolygon(obstacle, 5);
 			this.expandedObstacles.push(expandedObstacle);
 		}
 	}
@@ -32,34 +32,100 @@ export class ObstacleSystem {
 	private expandPolygon(polygon: Point[], margin: number): Point[] {
 		if (polygon.length < 3) return polygon;
 
-		// Alternative approach: calculate centroid and expand outward from center
-		const centroid = this.getPolygonCentroid(polygon);
-		const expandedVertices: Point[] = [];
+		// Use uniform margin expansion by offsetting each edge outward
+		return this.offsetPolygonUniform(polygon, margin);
+	}
+
+	private offsetPolygonUniform(polygon: Point[], offset: number): Point[] {
+		if (polygon.length < 3) return polygon;
+
+		// Try both directions and choose the one that creates a larger polygon
+		const expandedOutward = this.offsetPolygonInDirection(polygon, offset, false);
+		const expandedInward = this.offsetPolygonInDirection(polygon, offset, true);
+
+		// Calculate areas to determine which is the outward expansion
+		const outwardArea = this.getPolygonArea(expandedOutward);
+		const inwardArea = this.getPolygonArea(expandedInward);
+
+		// Return the expansion that creates a larger area (outward expansion)
+		return Math.abs(outwardArea) > Math.abs(inwardArea) ? expandedOutward : expandedInward;
+	}
+
+	private offsetPolygonInDirection(polygon: Point[], offset: number, flipDirection: boolean): Point[] {
+		// Calculate offset lines for each edge
+		const offsetLines: { start: Point; end: Point }[] = [];
 
 		for (let i = 0; i < polygon.length; i++) {
-			const vertex = polygon[i];
+			const current = polygon[i];
+			const next = polygon[(i + 1) % polygon.length];
 
-			// Vector from centroid to vertex
-			const dx = vertex.x - centroid.x;
-			const dy = vertex.y - centroid.y;
-			const length = Math.sqrt(dx * dx + dy * dy);
+			// Calculate edge direction
+			const edgeDx = next.x - current.x;
+			const edgeDy = next.y - current.y;
+			const edgeLength = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
 
-			if (length === 0) {
-				expandedVertices.push(vertex);
-				continue;
+			if (edgeLength === 0) continue;
+
+			// Calculate perpendicular vector (normal)
+			let normalX = -edgeDy / edgeLength;
+			let normalY = edgeDx / edgeLength;
+
+			// Flip direction if requested
+			if (flipDirection) {
+				normalX = -normalX;
+				normalY = -normalY;
 			}
 
-			// Normalize and extend by margin
-			const normalizedDx = dx / length;
-			const normalizedDy = dy / length;
+			// Create offset line by moving the edge
+			const offsetStart = {
+				x: current.x + normalX * offset,
+				y: current.y + normalY * offset
+			};
+			const offsetEnd = {
+				x: next.x + normalX * offset,
+				y: next.y + normalY * offset
+			};
 
-			expandedVertices.push({
-				x: vertex.x + normalizedDx * margin,
-				y: vertex.y + normalizedDy * margin
-			});
+			offsetLines.push({ start: offsetStart, end: offsetEnd });
+		}
+
+		// Find intersections between consecutive offset lines to get vertices
+		const expandedVertices: Point[] = [];
+
+		for (let i = 0; i < offsetLines.length; i++) {
+			const currentLine = offsetLines[i];
+			const nextLine = offsetLines[(i + 1) % offsetLines.length];
+
+			// Find intersection between current and next offset lines
+			const intersection = this.getLineIntersection(
+				currentLine.start,
+				currentLine.end,
+				nextLine.start,
+				nextLine.end
+			);
+
+			if (intersection) {
+				expandedVertices.push(intersection);
+			} else {
+				// Fallback: use the end point of current line
+				expandedVertices.push(currentLine.end);
+			}
 		}
 
 		return expandedVertices;
+	}
+
+	private getPolygonArea(polygon: Point[]): number {
+		if (polygon.length < 3) return 0;
+
+		let area = 0;
+		for (let i = 0; i < polygon.length; i++) {
+			const current = polygon[i];
+			const next = polygon[(i + 1) % polygon.length];
+			area += (next.x - current.x) * (next.y + current.y);
+		}
+
+		return area / 2;
 	}
 
 	private getPolygonCentroid(polygon: Point[]): Point {

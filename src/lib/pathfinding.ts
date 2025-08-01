@@ -256,7 +256,7 @@ export class Pathfinding {
 
 	// Special method for pathfinding with larger margin
 	private isValidPositionForPathfinding(x: number, y: number): boolean {
-		return this.isValidPosition(x, y, 30); // 30px margin for pathfinding
+		return this.isValidPosition(x, y, 5); // 5px margin for pathfinding
 	}
 
 	private getDistanceToPolygon(point: Point, polygon: Point[]): number {
