@@ -1,6 +1,6 @@
 # Tower Defense - Système de Pathfinding
 
-Un jeu de tower defense développé avec Svelte et PixiJS, mettant l'accent sur un système de pathfinding avancé avec visualisation des chemins optimaux.
+Un jeu de tower defense basé sur Svelte et PixiJS, développé uniquement avec Github Copilot.
 
 ## 🎯 Description du Projet
 
