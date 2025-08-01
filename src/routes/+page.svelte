@@ -18,7 +18,7 @@
 
 	let root: HTMLDivElement;
 	let pathfinder: PathfindingManager;
-	let previewSprite: Sprite | null = null;
+	let previewSprite: Sprite | Graphics | null = null;
 	let app: Application;
 	let expandedObstacleGraphics: (Graphics | Text)[] = [];
 	let expandedObstacleContainer: Container;
@@ -27,6 +27,34 @@
 	let testLineGraphics: (Graphics | Text)[] = [];
 	let mousePosition: Point = { x: 0, y: 0 };
 	let centralBunny: Sprite; // Pour obtenir la position du lapin vert
+	let enemyCount = 0; // Compteur d'ennemis en vie
+	let gameStartTime = 0; // Temps de début de partie (en millisecondes)
+	let gameTime = 0; // Temps de jeu ajusté selon la vitesse (en millisecondes)
+
+	// Difficulty scaling configuration
+	const difficultyConfig = {
+		waveInterval: 30000, // 30 secondes en millisecondes
+		baseHealth: 100, // PV de base des ennemis
+		healthMultiplier: 1.5, // Multiplicateur exponentiel (1.5x par vague)
+		maxWaves: 20 // Limite pour éviter des valeurs trop élevées
+	};
+
+	// Calculate current enemy health based on game time
+	$: currentEnemyHealth = (() => {
+		const waveNumber = Math.floor(gameTime / difficultyConfig.waveInterval);
+		const clampedWave = Math.min(waveNumber, difficultyConfig.maxWaves);
+		return Math.floor(
+			difficultyConfig.baseHealth * Math.pow(difficultyConfig.healthMultiplier, clampedWave)
+		);
+	})();
+
+	// Format the game time as MM:SS
+	$: formattedGameTime = (() => {
+		const totalSeconds = Math.floor(gameTime / 1000);
+		const minutes = Math.floor(totalSeconds / 60);
+		const seconds = totalSeconds % 60;
+		return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+	})();
 
 	// Throttle variables for test line optimization
 	let testLineThrottleTimer: number | null = null;
@@ -207,6 +235,69 @@
 
 	// New function to find optimal path to goal via blue corners
 	function findOptimalPathToGoal(startPos: Point): Point[] | null {
+		if (!pathfinder) return null;
+
+		const goalPos = { x: centralBunny.x, y: centralBunny.y };
+
+		// Test direct path first
+		if (pathfinder.testPathClear(startPos, goalPos)) {
+			return [startPos, goalPos];
+		}
+
+		// Get all blue corners (expanded obstacle corners)
+		const expandedObstacles = pathfinder.getExpandedObstacles();
+		const allBlueCorners: Point[] = [];
+
+		for (const obstacle of expandedObstacles) {
+			allBlueCorners.push(...obstacle);
+		}
+
+		// Find accessible blue corners with their distances to goal
+		const accessibleCorners: { corner: Point; distanceToGoal: number; totalDistance: number }[] =
+			[];
+
+		for (const corner of allBlueCorners) {
+			// Check if corner is accessible from start position
+			if (pathfinder.testPathClear(startPos, corner)) {
+				const distanceToGoal = pathfinder.getBlueCornerDistance(corner);
+
+				if (distanceToGoal !== null && distanceToGoal !== Infinity) {
+					const distanceFromStart = Math.sqrt(
+						Math.pow(corner.x - startPos.x, 2) + Math.pow(corner.y - startPos.y, 2)
+					);
+					const totalDistance = distanceFromStart + distanceToGoal;
+
+					accessibleCorners.push({
+						corner,
+						distanceToGoal,
+						totalDistance
+					});
+				}
+			}
+		}
+
+		if (accessibleCorners.length === 0) {
+			return null;
+		}
+
+		// Sort by total distance and pick the best one
+		accessibleCorners.sort((a, b) => a.totalDistance - b.totalDistance);
+		const optimalCorner = accessibleCorners[0];
+
+		// Get the precomputed path from the optimal corner to goal
+		const cornerToGoalPath = pathfinder.getBlueCornerPath(optimalCorner.corner);
+
+		if (cornerToGoalPath && cornerToGoalPath.length > 0) {
+			// Build complete path: start -> optimal corner -> goal path
+			const completePath = [startPos, ...cornerToGoalPath];
+			return completePath;
+		}
+
+		return null;
+	}
+
+	// Function to calculate optimal path for enemies (similar to findOptimalPathToGoal)
+	function calculateEnemyPath(startPos: Point): Point[] | null {
 		if (!pathfinder) return null;
 
 		const goalPos = { x: centralBunny.x, y: centralBunny.y };
@@ -553,6 +644,10 @@
 			// Initialize the application
 			await app.init({ background: '#1099bb', resizeTo: window });
 
+			// Initialize game timer
+			gameStartTime = Date.now();
+			gameTime = 0;
+
 			// Append the application canvas to the document body
 			// eslint-disable-next-line svelte/no-dom-manipulating
 			root.appendChild(app.canvas);
@@ -635,9 +730,36 @@
 			updateExpandedObstacleVisuals();
 
 			// Array to store moving enemies with their paths
-			const enemies: {
+			let enemies: {
 				sprite: Sprite;
+				path: Point[] | null;
+				currentPathIndex: number;
+				maxHealth: number;
+				currentHealth: number;
+				healthBar: Graphics;
 			}[] = [];
+
+			// Array to store towers with their properties
+			const towers: {
+				sprite: Sprite;
+				range: number;
+				fireRate: number; // Shots per second
+				timeSinceLastShot: number; // Accumulator in seconds
+				damage: number;
+			}[] = [];
+
+			// Array to store projectiles
+			const projectiles: {
+				sprite: Graphics;
+				speed: number;
+				damage: number;
+				dx: number;
+				dy: number;
+			}[] = [];
+
+			// Auto-spawn system variables
+			const baseSpawnInterval = 500; // Intervalle de base en millisecondes (à vitesse normale)
+			let spawnAccumulator = 0; // Accumulateur pour gérer le spawn basé sur les ticks
 
 			// Function to spawn enemy at specific position (for click events)
 			function spawnEnemyAt(x: number, y: number) {
@@ -648,9 +770,104 @@
 				enemy.y = y;
 				app.stage.addChild(enemy);
 
-				enemies.push({
-					sprite: enemy
-				});
+				// Create health bar
+				const healthBar = new Graphics();
+				app.stage.addChild(healthBar);
+
+				// Calculate initial path using pathfinding
+				const initialPath = calculateEnemyPath({ x, y });
+
+				// Use current enemy health based on game time progression
+				const enemyData = {
+					sprite: enemy,
+					path: initialPath,
+					currentPathIndex: 0,
+					maxHealth: currentEnemyHealth,
+					currentHealth: currentEnemyHealth,
+					healthBar: healthBar
+				};
+
+				enemies.push(enemyData);
+				updateEnemyHealthBar(enemyData);
+				enemyCount = enemies.length; // Mettre à jour le compteur
+			}
+
+			// Function to spawn enemy from random edge of the map
+			function spawnEnemyFromEdge() {
+				const screenWidth = app.screen.width;
+				const screenHeight = app.screen.height;
+				const margin = 20; // Distance du bord
+
+				// Choisir un côté aléatoire (0: haut, 1: droite, 2: bas, 3: gauche)
+				const side = Math.floor(Math.random() * 4);
+				let x: number, y: number;
+
+				switch (side) {
+					case 0: // Haut
+						x = Math.random() * screenWidth;
+						y = -margin;
+						break;
+					case 1: // Droite
+						x = screenWidth + margin;
+						y = Math.random() * screenHeight;
+						break;
+					case 2: // Bas
+						x = Math.random() * screenWidth;
+						y = screenHeight + margin;
+						break;
+					case 3: // Gauche
+						x = -margin;
+						y = Math.random() * screenHeight;
+						break;
+					default:
+						x = 0;
+						y = 0;
+				}
+
+				spawnEnemyAt(x, y);
+			}
+
+			// Function to update enemy health bar
+			function updateEnemyHealthBar(enemyData: (typeof enemies)[0]) {
+				const healthBar = enemyData.healthBar;
+				const enemy = enemyData.sprite;
+
+				// Clear previous graphics
+				healthBar.clear();
+
+				// Health bar dimensions
+				const barWidth = 30;
+				const barHeight = 4;
+				const barOffsetY = -25; // Distance au-dessus du lapin
+
+				// Calculate health percentage
+				const healthPercent = enemyData.currentHealth / enemyData.maxHealth;
+
+				// Position the health bar above the enemy
+				const barX = enemy.x - barWidth / 2;
+				const barY = enemy.y + barOffsetY;
+
+				// Draw background (red)
+				healthBar.beginFill(0x440000);
+				healthBar.drawRect(barX, barY, barWidth, barHeight);
+				healthBar.endFill();
+
+				// Draw health (green to red gradient based on health)
+				let healthColor = 0x00ff00; // Vert
+				if (healthPercent < 0.5) {
+					healthColor = 0xffff00; // Jaune
+				}
+				if (healthPercent < 0.25) {
+					healthColor = 0xff0000; // Rouge
+				}
+
+				healthBar.beginFill(healthColor);
+				healthBar.drawRect(barX, barY, barWidth * healthPercent, barHeight);
+				healthBar.endFill();
+
+				// Draw border
+				healthBar.lineStyle(1, 0x000000, 0.8);
+				healthBar.drawRect(barX, barY, barWidth, barHeight);
 			}
 
 			// Function to spawn tower at specific position (for right-click events)
@@ -661,6 +878,28 @@
 				tower.x = x;
 				tower.y = y;
 				app.stage.addChild(tower);
+
+				// Add tower to towers array with properties
+				towers.push({
+					sprite: tower,
+					range: 150, // Portée de 150 pixels
+					fireRate: 2, // 2 tirs par seconde
+					timeSinceLastShot: 0, // Commencer à 0
+					damage: 50 // 50 dégâts par projectile
+				});
+			}
+
+			// Function to recalculate paths for all existing enemies
+			function recalculateAllEnemyPaths() {
+				for (const enemyData of enemies) {
+					const enemy = enemyData.sprite;
+					const newPath = calculateEnemyPath({ x: enemy.x, y: enemy.y });
+
+					if (newPath) {
+						enemyData.path = newPath;
+						enemyData.currentPathIndex = 0; // Reset to start of new path
+					}
+				}
 			}
 
 			// Function to spawn wall at specific position
@@ -711,6 +950,56 @@
 
 				// Update visuals after adding obstacle
 				updateExpandedObstacleVisuals();
+
+				// Recalculate paths for all existing enemies
+				recalculateAllEnemyPaths();
+			}
+
+			// Function to find closest enemy within range of a tower
+			function findClosestEnemyInRange(towerX: number, towerY: number, range: number) {
+				let closestEnemy = null;
+				let closestDistance = Infinity;
+
+				for (const enemyData of enemies) {
+					const enemy = enemyData.sprite;
+					const distance = Math.sqrt(Math.pow(enemy.x - towerX, 2) + Math.pow(enemy.y - towerY, 2));
+
+					if (distance <= range && distance < closestDistance) {
+						closestDistance = distance;
+						closestEnemy = enemyData;
+					}
+				}
+
+				return closestEnemy;
+			}
+
+			// Function to create a projectile
+			function createProjectile(
+				fromX: number,
+				fromY: number,
+				targetEnemy: (typeof enemies)[0],
+				damage: number
+			) {
+				const projectile = new Graphics();
+				projectile.beginFill(0xffff00, 1.0); // Jaune brillant
+				projectile.drawCircle(0, 0, 3); // Petit cercle de 3px de rayon
+				projectile.endFill();
+				projectile.x = fromX;
+				projectile.y = fromY;
+				app.stage.addChild(projectile);
+
+				// Calculate direction to target (but don't store the target reference)
+				const dx = targetEnemy.sprite.x - fromX;
+				const dy = targetEnemy.sprite.y - fromY;
+				const distance = Math.sqrt(dx * dx + dy * dy);
+
+				projectiles.push({
+					sprite: projectile,
+					speed: 200, // 200 pixels par seconde
+					damage: damage,
+					dx: dx / distance, // Direction normalisée
+					dy: dy / distance
+				});
 			}
 
 			// Variable to track current preview type
@@ -858,46 +1147,189 @@
 
 				const adjustedDeltaTime = ticker.deltaTime * currentGameSpeed;
 
-				// Update enemies - simple direct movement
+				// Update game timer (affected by game speed)
+				const realTimeDelta = ticker.deltaTime / 60.0; // Convert ticks to seconds (at 60fps)
+				const gameTimeDelta = realTimeDelta * currentGameSpeed; // Apply game speed multiplier
+				gameTime += gameTimeDelta * 1000; // Convert back to milliseconds
+
+				// Update enemies - pathfinding-based movement
 				for (let i = enemies.length - 1; i >= 0; i--) {
 					const enemyData = enemies[i];
 					const enemy = enemyData.sprite;
 
-					// Simple direct movement towards the goal
-					const goalPos = { x: centralBunny.x, y: centralBunny.y };
-					const dx = goalPos.x - enemy.x;
-					const dy = goalPos.y - enemy.y;
-					const distance = Math.sqrt(dx * dx + dy * dy);
+					// Use pathfinding-based movement
+					if (enemyData.path && enemyData.path.length > 0) {
+						// Get current target waypoint
+						const targetWaypoint = enemyData.path[enemyData.currentPathIndex];
 
-					if (distance > 5) {
-						// Move directly towards goal
-						const speed = 2;
-						const moveDistance = speed * adjustedDeltaTime;
-						enemy.x += (dx / distance) * moveDistance;
-						enemy.y += (dy / distance) * moveDistance;
+						if (targetWaypoint) {
+							// Move towards current waypoint
+							const dx = targetWaypoint.x - enemy.x;
+							const dy = targetWaypoint.y - enemy.y;
+							const distance = Math.sqrt(dx * dx + dy * dy);
+
+							if (distance > 5) {
+								// Move towards current waypoint
+								const speed = 2;
+								const moveDistance = speed * adjustedDeltaTime;
+								enemy.x += (dx / distance) * moveDistance;
+								enemy.y += (dy / distance) * moveDistance;
+
+								// Update health bar position
+								updateEnemyHealthBar(enemyData);
+							} else {
+								// Reached current waypoint, move to next
+								enemyData.currentPathIndex++;
+
+								// Check if we've reached the final destination
+								if (enemyData.currentPathIndex >= enemyData.path.length) {
+									// Reached goal - damage player and remove enemy
+									takeDamage();
+									app.stage.removeChild(enemy);
+									app.stage.removeChild(enemyData.healthBar);
+									enemies.splice(i, 1);
+									enemyCount = enemies.length; // Mettre à jour le compteur
+									continue;
+								}
+							}
+						}
 					} else {
-						// Reached goal - damage player and remove enemy
-						takeDamage();
-						app.stage.removeChild(enemy);
-						enemies.splice(i, 1);
+						// Fallback: if no path available, use direct movement
+						const goalPos = { x: centralBunny.x, y: centralBunny.y };
+						const dx = goalPos.x - enemy.x;
+						const dy = goalPos.y - enemy.y;
+						const distance = Math.sqrt(dx * dx + dy * dy);
+
+						if (distance > 5) {
+							const speed = 2;
+							const moveDistance = speed * adjustedDeltaTime;
+							enemy.x += (dx / distance) * moveDistance;
+							enemy.y += (dy / distance) * moveDistance;
+
+							// Update health bar position
+							updateEnemyHealthBar(enemyData);
+						} else {
+							// Reached goal - damage player and remove enemy
+							takeDamage();
+							app.stage.removeChild(enemy);
+							app.stage.removeChild(enemyData.healthBar);
+							enemies.splice(i, 1);
+							enemyCount = enemies.length; // Mettre à jour le compteur
+							continue;
+						}
+					}
+				}
+
+				// Update towers - target and shoot at enemies
+				for (const towerData of towers) {
+					const tower = towerData.sprite;
+
+					// Accumulate time since last shot (affected by game speed)
+					towerData.timeSinceLastShot += adjustedDeltaTime / 60.0; // Convert ticks to seconds
+
+					// Check if enough time has passed since last shot
+					const fireInterval = 1.0 / towerData.fireRate; // Seconds between shots
+
+					if (towerData.timeSinceLastShot >= fireInterval) {
+						// Find closest enemy in range
+						const target = findClosestEnemyInRange(tower.x, tower.y, towerData.range);
+
+						if (target) {
+							// Fire projectile
+							createProjectile(tower.x, tower.y, target, towerData.damage);
+							towerData.timeSinceLastShot = 0; // Reset the timer
+						}
+					}
+				}
+
+				// Update projectiles
+				for (let i = projectiles.length - 1; i >= 0; i--) {
+					const projectileData = projectiles[i];
+					const projectile = projectileData.sprite;
+
+					// Move projectile (convert speed from pixels/second to pixels per frame)
+					const pixelsPerSecond = projectileData.speed;
+					const pixelsPerFrame = (pixelsPerSecond / 60.0) * adjustedDeltaTime;
+					projectile.x += projectileData.dx * pixelsPerFrame;
+					projectile.y += projectileData.dy * pixelsPerFrame;
+
+					// Check collision with any enemy
+					let hitEnemy = false;
+					for (let j = enemies.length - 1; j >= 0; j--) {
+						const enemyData = enemies[j];
+						const enemy = enemyData.sprite;
+
+						// Check collision distance
+						const distanceToEnemy = Math.sqrt(
+							Math.pow(projectile.x - enemy.x, 2) + Math.pow(projectile.y - enemy.y, 2)
+						);
+
+						if (distanceToEnemy < 15) {
+							// Collision radius
+							// Hit enemy - apply damage
+							enemyData.currentHealth -= projectileData.damage;
+
+							// Remove projectile
+							app.stage.removeChild(projectile);
+							projectiles.splice(i, 1);
+
+							// Update health bar
+							updateEnemyHealthBar(enemyData);
+
+							// Check if enemy is dead
+							if (enemyData.currentHealth <= 0) {
+								// Remove enemy and its health bar
+								app.stage.removeChild(enemy);
+								app.stage.removeChild(enemyData.healthBar);
+								enemies.splice(j, 1);
+								enemyCount = enemies.length; // Mettre à jour le compteur
+							}
+
+							hitEnemy = true;
+							break; // Exit enemy loop
+						}
+					}
+
+					// If projectile hit an enemy, skip to next projectile
+					if (hitEnemy) {
 						continue;
 					}
+
+					// Remove projectile if it goes off screen
+					if (
+						projectile.x < -50 ||
+						projectile.x > app.screen.width + 50 ||
+						projectile.y < -50 ||
+						projectile.y > app.screen.height + 50
+					) {
+						app.stage.removeChild(projectile);
+						projectiles.splice(i, 1);
+					}
+				}
+
+				// Auto-spawn enemies from edges (balanced with game speed)
+				spawnAccumulator += ticker.deltaTime; // Utiliser le deltaTime réel
+				// Ajuster le spawn rate en fonction de la vitesse pour maintenir un nombre constant d'ennemis
+				// Plus la vitesse est élevée, plus les ennemis doivent apparaître souvent
+				const baseTicksFor500ms = (baseSpawnInterval / 1000) * 60; // Convert ms to ticks at 60fps
+				const spawnThreshold = baseTicksFor500ms / Math.max(currentGameSpeed, 0.1); // Plus rapide quand vitesse élevée
+
+				if (spawnAccumulator >= spawnThreshold) {
+					spawnEnemyFromEdge();
+					spawnAccumulator = 0; // Reset l'accumulateur
 				}
 			});
 
 			// Handle rotation with R key
-			window.addEventListener('keydown', (event) => {
-				if (event.key === 'r' || event.key === 'R') {
-					event.preventDefault();
-					setWallRotating(true);
-					rotateWall();
-				}
-			});
-
 			window.addEventListener('keyup', (event) => {
 				if (event.key === 'r' || event.key === 'R') {
 					event.preventDefault();
-					setWallRotating(false);
+					rotateWall();
+
+					// Update preview immediately if wall tool is selected and preview exists
+					if ($selectedBunnyType === 'wall' && previewSprite && mousePosition) {
+						updatePreview($selectedBunnyType, mousePosition.x, mousePosition.y);
+					}
 				}
 			});
 		})();
@@ -920,6 +1352,30 @@
 <HealthBar />
 <BunnySelector />
 <GameSpeedControl />
+
+<!-- Timer de jeu -->
+<div class="game-timer">
+	<div class="timer-content">
+		<span class="timer-icon">⏱️</span>
+		<span class="timer-text">{formattedGameTime}</span>
+	</div>
+</div>
+
+<!-- Affichage des PV des ennemis -->
+<div class="enemy-health-display">
+	<div class="health-content">
+		<span class="health-icon">❤️</span>
+		<span class="health-text">PV Ennemis: {currentEnemyHealth}</span>
+	</div>
+</div>
+
+<!-- Compteur d'ennemis -->
+<div class="enemy-counter">
+	<div class="counter-content">
+		<span class="counter-icon">👹</span>
+		<span class="counter-text">Ennemis: {enemyCount}</span>
+	</div>
+</div>
 
 {#if $selectedBunnyType === 'test-line'}
 	<div class="test-line-info">
@@ -955,6 +1411,100 @@
 <div bind:this={root}></div>
 
 <style>
+	.game-timer {
+		position: fixed;
+		top: 20px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 1000;
+		background: rgba(0, 0, 0, 0.8);
+		border: 2px solid #4caf50;
+		border-radius: 8px;
+		padding: 8px 16px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	}
+
+	.timer-content {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.timer-icon {
+		font-size: 16px;
+	}
+
+	.timer-text {
+		color: #4caf50;
+		font-family: 'Courier New', monospace;
+		font-size: 16px;
+		font-weight: bold;
+		text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+		min-width: 50px;
+		text-align: center;
+	}
+
+	.enemy-health-display {
+		position: fixed;
+		top: 70px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 1000;
+		background: rgba(0, 0, 0, 0.8);
+		border: 2px solid #ff6b6b;
+		border-radius: 8px;
+		padding: 6px 12px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	}
+
+	.health-content {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.health-icon {
+		font-size: 14px;
+	}
+
+	.health-text {
+		color: #ff6b6b;
+		font-family: 'Courier New', monospace;
+		font-size: 14px;
+		font-weight: bold;
+		text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+	}
+
+	.enemy-counter {
+		position: fixed;
+		top: 20px;
+		right: 20px;
+		z-index: 1000;
+		background: rgba(0, 0, 0, 0.8);
+		border: 2px solid #ff4444;
+		border-radius: 8px;
+		padding: 8px 12px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	}
+
+	.counter-content {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.counter-icon {
+		font-size: 16px;
+	}
+
+	.counter-text {
+		color: #ff4444;
+		font-family: Arial, sans-serif;
+		font-size: 14px;
+		font-weight: bold;
+		text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+	}
+
 	.test-line-info {
 		position: fixed;
 		bottom: 20px;

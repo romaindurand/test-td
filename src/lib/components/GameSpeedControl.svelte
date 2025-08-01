@@ -115,6 +115,10 @@
 		font-size: 11px;
 		color: #ccc;
 		margin-top: 2px;
+		/* Align with slider width by accounting for the display element */
+		margin-right: 70px; /* Width of speed-display + gap */
+		padding-left: 10px; /* Account for slider thumb radius */
+		padding-right: 10px; /* Account for slider thumb radius */
 	}
 
 	.marker {
