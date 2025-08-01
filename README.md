@@ -28,15 +28,23 @@ Ce projet implémente un système de tower defense avec un moteur de pathfinding
 ### 1. Lapin Rouge (Ennemi)
 
 - **Fonction** : Place des ennemis sur le terrain
-- **Comportement** : Se dirigent directement vers le lapin vert cible
+- **Comportement** : 
+  - Utilisent le pathfinding intelligent pour contourner les obstacles
+  - Recalculent automatiquement leur trajet quand de nouveaux murs sont placés
+  - PV augmentent exponentiellement toutes les 30 secondes (temps de jeu)
+- **Santé** : 100 PV de base, ×1.5 par vague (30s)
 - **Dégâts** : Infligent 1 point de dégâts en atteignant la cible
 
 ### 2. Lapin Jaune (Tour de Défense)
 
-- **Fonction** : Place des tours de défense
+- **Fonction** : Place des tours de défense automatiques
+- **Propriétés** :
+  - Portée : 150 pixels
+  - Cadence : 2 tirs par seconde
+  - Dégâts : 50 PV par projectile
+- **Comportement** : Cible automatiquement l'ennemi le plus proche
 - **Couleur Interface** : Fond jaune avec animation de pulsation
 - **Couleur Jeu** : Sprite jaune (0xffff00)
-- **Rôle** : Éléments défensifs statiques
 
 ### 3. Mur (Obstacle)
 
@@ -128,6 +136,12 @@ Si le chemin direct est bloqué :
 - **Animations** : Pulsation lors de la sélection active
 - **Info Rotation** : Angle affiché pour l'outil mur
 
+### Timer et Progression
+
+- **Timer de Jeu** : Centré en haut, affecté par la vitesse du jeu
+- **PV des Ennemis** : Juste sous le timer, progression exponentielle toutes les 30s
+- **Formule** : PV = 100 × 1.5^(vague) avec vagues toutes les 30 secondes
+
 ### Barre de Santé
 
 - **Position** : Coin supérieur gauche
@@ -140,9 +154,22 @@ Si le chemin direct est bloqué :
 - **Affichage** : Couleur dynamique selon la vitesse
 - **Animation** : Pulsation en pause
 
-### Panneau Test Ligne (mode analyse)
+### Statistiques de Jeu
 
 - **Position** : Coin inférieur droit
+- **Informations temps réel** :
+  - 👹 Nombre d'ennemis vivants sur le terrain
+  - 💥 Nombre de projectiles en vol
+- **Historique (30 dernières secondes)** :
+  - Mini-graphiques d'évolution en temps réel
+  - Valeurs médianes (M: XX)
+  - Couleurs : Rouge pour les ennemis, Or pour les projectiles
+- **Échantillonnage** : Données collectées toutes les 500ms
+- **Mise à jour** : Temps réel avec animation fluide
+
+### Panneau Test Ligne (mode analyse)
+
+- **Position** : Coin inférieur droit (décalé si statistiques visibles)
 - **Informations** :
   - ✅ Chemin direct disponible
   - 🎯 Chemin via coin optimal
@@ -234,6 +261,14 @@ pnpm preview
 ```
 
 ## 🎯 Fonctionnalités Avancées
+
+### Analytics et Statistiques
+
+- **Tracking Historique** : Suivi des 30 dernières secondes de jeu
+- **Mini-Graphiques SVG** : Visualisation en temps réel des tendances
+- **Calculs Statistiques** : Médiane automatique des données collectées
+- **Échantillonnage Intelligent** : Collecte de données toutes les 500ms
+- **Optimisation Mémoire** : Suppression automatique des données anciennes
 
 ### Visualisation Debug
 

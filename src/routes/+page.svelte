@@ -28,8 +28,86 @@
 	let mousePosition: Point = { x: 0, y: 0 };
 	let centralBunny: Sprite; // Pour obtenir la position du lapin vert
 	let enemyCount = 0; // Compteur d'ennemis en vie
+	let projectileCount = 0; // Compteur de projectiles à l'écran
 	let gameStartTime = 0; // Temps de début de partie (en millisecondes)
 	let gameTime = 0; // Temps de jeu ajusté selon la vitesse (en millisecondes)
+
+	// Debug visualization toggle
+	let showDebugOverlay = true;
+
+	// Smart firing mode toggle
+	let smartFiringMode = false;
+
+	// Enemy spawn rate control (0 = paused, 50 = 500ms default, 100 = 100ms fastest)
+	let spawnRateSlider = 50; // Default value (500ms)
+
+	// Calculate actual spawn interval from slider value
+	$: actualSpawnInterval = spawnRateSlider === 0 ? Infinity : (110 - spawnRateSlider) * 10; // 0->∞, 50->500ms, 100->100ms
+
+	// Historical data for statistics (30 seconds worth of data)
+	const HISTORY_DURATION = 30000; // 30 seconds in milliseconds
+	const SAMPLE_INTERVAL = 500; // Sample every 500ms
+	let enemyHistory: { time: number; count: number }[] = [];
+	let projectileHistory: { time: number; count: number }[] = [];
+	let lastSampleTime = 0;
+
+	// Calculate median and trends
+	$: enemyMedian = calculateMedian(enemyHistory.map((h) => h.count));
+	$: projectileMedian = calculateMedian(projectileHistory.map((h) => h.count));
+
+	function calculateMedian(values: number[]): number {
+		if (values.length === 0) return 0;
+		const sorted = [...values].sort((a, b) => a - b);
+		const mid = Math.floor(sorted.length / 2);
+		return sorted.length % 2 === 0 ? Math.round((sorted[mid - 1] + sorted[mid]) / 2) : sorted[mid];
+	}
+
+	function updateHistoricalData() {
+		const currentTime = gameTime;
+
+		// Add new sample if enough time has passed
+		if (currentTime - lastSampleTime >= SAMPLE_INTERVAL) {
+			enemyHistory.push({ time: currentTime, count: enemyCount });
+			projectileHistory.push({ time: currentTime, count: projectileCount });
+			lastSampleTime = currentTime;
+
+			// Remove old data (older than 30 seconds)
+			const cutoffTime = currentTime - HISTORY_DURATION;
+			enemyHistory = enemyHistory.filter((h) => h.time >= cutoffTime);
+			projectileHistory = projectileHistory.filter((h) => h.time >= cutoffTime);
+		}
+	}
+
+	function generateMiniChart(history: { time: number; count: number }[], color: string): string {
+		if (history.length < 2) {
+			return `<svg width="60" height="20" viewBox="0 0 60 20"><line x1="0" y1="10" x2="60" y2="10" stroke="${color}" stroke-width="1" opacity="0.3"/></svg>`;
+		}
+
+		const maxCount = Math.max(...history.map((h) => h.count), 1);
+		const minTime = Math.min(...history.map((h) => h.time));
+		const maxTime = Math.max(...history.map((h) => h.time));
+		const timeRange = maxTime - minTime || 1;
+
+		let pathData = '';
+
+		history.forEach((point, index) => {
+			const x = ((point.time - minTime) / timeRange) * 60;
+			const y = 20 - (point.count / maxCount) * 18;
+
+			if (index === 0) {
+				pathData += `M ${x} ${y}`;
+			} else {
+				pathData += ` L ${x} ${y}`;
+			}
+		});
+
+		return `<svg width="60" height="20" viewBox="0 0 60 20">
+			<path d="${pathData}" stroke="${color}" stroke-width="1.5" fill="none"/>
+			<circle cx="${((history[history.length - 1]?.time - minTime) / timeRange) * 60}" 
+					cy="${20 - (history[history.length - 1]?.count / maxCount) * 18}" 
+					r="1.5" fill="${color}"/>
+		</svg>`;
+	}
 
 	// Difficulty scaling configuration
 	const difficultyConfig = {
@@ -518,122 +596,135 @@
 		const originalObstacles = pathfinder.getObstacles(); // Récupérer les obstacles originaux
 
 		// Draw original obstacles in orange transparent for debugging
-		originalObstacles.forEach((obstacle) => {
-			if (obstacle.length < 3) return;
+		if (showDebugOverlay) {
+			originalObstacles.forEach((obstacle) => {
+				if (obstacle.length < 3) return;
 
-			const originalObstacleGraphic = new Graphics();
-			originalObstacleGraphic.beginFill(0xff8800, 0.4); // Orange transparent
-			originalObstacleGraphic.lineStyle(2, 0xff4400, 0.9); // Bordure orange foncé
+				const originalObstacleGraphic = new Graphics();
+				originalObstacleGraphic.beginFill(0xff8800, 0.4); // Orange transparent
+				originalObstacleGraphic.lineStyle(2, 0xff4400, 0.9); // Bordure orange foncé
 
-			// Draw polygon
-			originalObstacleGraphic.moveTo(obstacle[0].x, obstacle[0].y);
-			for (let i = 1; i < obstacle.length; i++) {
-				originalObstacleGraphic.lineTo(obstacle[i].x, obstacle[i].y);
-			}
-			originalObstacleGraphic.closePath();
-			originalObstacleGraphic.endFill();
+				// Draw polygon
+				originalObstacleGraphic.moveTo(obstacle[0].x, obstacle[0].y);
+				for (let i = 1; i < obstacle.length; i++) {
+					originalObstacleGraphic.lineTo(obstacle[i].x, obstacle[i].y);
+				}
+				originalObstacleGraphic.closePath();
+				originalObstacleGraphic.endFill();
 
-			expandedObstacleContainer.addChild(originalObstacleGraphic);
-			expandedObstacleGraphics.push(originalObstacleGraphic);
-		});
+				expandedObstacleContainer.addChild(originalObstacleGraphic);
+				expandedObstacleGraphics.push(originalObstacleGraphic);
+			});
+		}
 
 		// Draw expanded obstacles with interactive corners
-		expandedObstacles.forEach((obstacle) => {
-			if (obstacle.length < 3) return;
+		if (showDebugOverlay) {
+			expandedObstacles.forEach((obstacle) => {
+				if (obstacle.length < 3) return;
 
-			const obstacleGraphic = new Graphics();
-			obstacleGraphic.beginFill(0x0099ff, 0.3); // Bleu translucide
-			obstacleGraphic.lineStyle(1, 0x0066cc, 0.8); // Bordure bleu plus foncé
+				const obstacleGraphic = new Graphics();
+				obstacleGraphic.beginFill(0x0099ff, 0.3); // Bleu translucide
+				obstacleGraphic.lineStyle(1, 0x0066cc, 0.8); // Bordure bleu plus foncé
 
-			// Draw polygon
-			obstacleGraphic.moveTo(obstacle[0].x, obstacle[0].y);
-			for (let i = 1; i < obstacle.length; i++) {
-				obstacleGraphic.lineTo(obstacle[i].x, obstacle[i].y);
-			}
-			obstacleGraphic.closePath();
-			obstacleGraphic.endFill();
-
-			expandedObstacleContainer.addChild(obstacleGraphic);
-			expandedObstacleGraphics.push(obstacleGraphic);
-
-			// Add interactive corner points
-			obstacle.forEach((corner) => {
-				const cornerGraphic = new Graphics();
-				cornerGraphic.beginFill(0x0066cc, 0.8);
-				cornerGraphic.drawCircle(corner.x, corner.y, 8); // Augmenter la taille pour déboguer
-				cornerGraphic.endFill();
-
-				// Make corner interactive - configuration plus explicite
-				cornerGraphic.eventMode = 'static';
-				cornerGraphic.cursor = 'pointer';
-				cornerGraphic.interactive = true;
-
-				// Ajouter le texte de distance
-				const distance = pathfinder.getBlueCornerDistance(corner);
-				if (distance !== null && distance !== Infinity) {
-					const distanceText = new Text({
-						text: Math.round(distance).toString(),
-						style: {
-							fontFamily: 'Arial',
-							fontSize: 12,
-							fill: 0xffffff,
-							fontWeight: 'bold'
-						}
-					});
-					distanceText.anchor.set(0.5);
-					distanceText.x = corner.x;
-					distanceText.y = corner.y - 15; // Décaler vers le haut
-					app.stage.addChild(distanceText);
-					expandedObstacleGraphics.push(distanceText);
-				} else if (distance === null || distance === Infinity) {
-					// Afficher un "X" pour indiquer que le goal n'est pas accessible
-					const inaccessibleText = new Text({
-						text: '✗',
-						style: {
-							fontFamily: 'Arial',
-							fontSize: 14,
-							fill: 0xff0000, // Rouge pour l'inaccessibilité
-							fontWeight: 'bold'
-						}
-					});
-					inaccessibleText.anchor.set(0.5);
-					inaccessibleText.x = corner.x;
-					inaccessibleText.y = corner.y - 15; // Décaler vers le haut
-					app.stage.addChild(inaccessibleText);
-					expandedObstacleGraphics.push(inaccessibleText);
+				// Draw polygon
+				obstacleGraphic.moveTo(obstacle[0].x, obstacle[0].y);
+				for (let i = 1; i < obstacle.length; i++) {
+					obstacleGraphic.lineTo(obstacle[i].x, obstacle[i].y);
 				}
+				obstacleGraphic.closePath();
+				obstacleGraphic.endFill();
 
-				// Handle hover events
-				cornerGraphic.on('pointerover', () => {
-					// Debug: tester directement la détection d'intersection
-					const goalPos = pathfinder.getGoal();
-					const path = pathfinder.getBlueCornerPath(corner);
-					if (path && path.length > 1) {
-						drawHoverPath(path);
-					} else {
-						// Debug visuel : afficher la ligne directe en rouge pour voir pourquoi elle est bloquée
-						const debugLine = new Graphics();
-						debugLine.moveTo(corner.x, corner.y);
-						debugLine.lineTo(goalPos.x, goalPos.y);
-						debugLine.stroke({ width: 2, color: 0xff0000, alpha: 0.5 }); // Rouge translucide
+				expandedObstacleContainer.addChild(obstacleGraphic);
+				expandedObstacleGraphics.push(obstacleGraphic);
 
-						app.stage.addChild(debugLine);
-						hoverPathGraphics.push(debugLine);
+				// Add interactive corner points
+				obstacle.forEach((corner) => {
+					const cornerGraphic = new Graphics();
+					cornerGraphic.beginFill(0x0066cc, 0.8);
+					cornerGraphic.drawCircle(corner.x, corner.y, 8); // Augmenter la taille pour déboguer
+					cornerGraphic.endFill();
 
-						// Ne pas afficher de chemin si le goal n'est pas accessible
-						// clearHoverPath(); // Commenté pour garder la ligne debug
+					// Make corner interactive - configuration plus explicite
+					cornerGraphic.eventMode = 'static';
+					cornerGraphic.cursor = 'pointer';
+					cornerGraphic.interactive = true;
+
+					// Ajouter le texte de distance
+					const distance = pathfinder.getBlueCornerDistance(corner);
+					if (distance !== null && distance !== Infinity) {
+						const distanceText = new Text({
+							text: Math.round(distance).toString(),
+							style: {
+								fontFamily: 'Arial',
+								fontSize: 12,
+								fill: 0xffffff,
+								fontWeight: 'bold'
+							}
+						});
+						distanceText.anchor.set(0.5);
+						distanceText.x = corner.x;
+						distanceText.y = corner.y - 15; // Décaler vers le haut
+						app.stage.addChild(distanceText);
+						expandedObstacleGraphics.push(distanceText);
+					} else if (distance === null || distance === Infinity) {
+						// Afficher un "X" pour indiquer que le goal n'est pas accessible
+						const inaccessibleText = new Text({
+							text: '✗',
+							style: {
+								fontFamily: 'Arial',
+								fontSize: 14,
+								fill: 0xff0000, // Rouge pour l'inaccessibilité
+								fontWeight: 'bold'
+							}
+						});
+						inaccessibleText.anchor.set(0.5);
+						inaccessibleText.x = corner.x;
+						inaccessibleText.y = corner.y - 15; // Décaler vers le haut
+						app.stage.addChild(inaccessibleText);
+						expandedObstacleGraphics.push(inaccessibleText);
 					}
-				});
 
-				cornerGraphic.on('pointerout', () => {
-					clearHoverPath();
-				});
+					// Handle hover events
+					cornerGraphic.on('pointerover', () => {
+						// Debug: tester directement la détection d'intersection
+						const goalPos = pathfinder.getGoal();
+						const path = pathfinder.getBlueCornerPath(corner);
+						if (path && path.length > 1) {
+							drawHoverPath(path);
+						} else {
+							// Debug visuel : afficher la ligne directe en rouge pour voir pourquoi elle est bloquée
+							const debugLine = new Graphics();
+							debugLine.moveTo(corner.x, corner.y);
+							debugLine.lineTo(goalPos.x, goalPos.y);
+							debugLine.stroke({ width: 2, color: 0xff0000, alpha: 0.5 }); // Rouge translucide
 
-				// Ajouter directement au stage pour éviter les problèmes de hiérarchie
-				app.stage.addChild(cornerGraphic);
-				expandedObstacleGraphics.push(cornerGraphic);
+							app.stage.addChild(debugLine);
+							hoverPathGraphics.push(debugLine);
+
+							// Ne pas afficher de chemin si le goal n'est pas accessible
+							// clearHoverPath(); // Commenté pour garder la ligne debug
+						}
+					});
+
+					cornerGraphic.on('pointerout', () => {
+						clearHoverPath();
+					});
+
+					// Ajouter directement au stage pour éviter les problèmes de hiérarchie
+					app.stage.addChild(cornerGraphic);
+					expandedObstacleGraphics.push(cornerGraphic);
+				});
 			});
-		});
+		}
+	}
+
+	function toggleDebugOverlay() {
+		showDebugOverlay = !showDebugOverlay;
+		updateExpandedObstacleVisuals();
+	}
+
+	function toggleSmartFiring() {
+		smartFiringMode = !smartFiringMode;
 	}
 
 	onMount(() => {
@@ -737,6 +828,8 @@
 				maxHealth: number;
 				currentHealth: number;
 				healthBar: Graphics;
+				velocity: { x: number; y: number };
+				previousPosition: { x: number; y: number };
 			}[] = [];
 
 			// Array to store towers with their properties
@@ -758,7 +851,6 @@
 			}[] = [];
 
 			// Auto-spawn system variables
-			const baseSpawnInterval = 500; // Intervalle de base en millisecondes (à vitesse normale)
 			let spawnAccumulator = 0; // Accumulateur pour gérer le spawn basé sur les ticks
 
 			// Function to spawn enemy at specific position (for click events)
@@ -784,7 +876,9 @@
 					currentPathIndex: 0,
 					maxHealth: currentEnemyHealth,
 					currentHealth: currentEnemyHealth,
-					healthBar: healthBar
+					healthBar: healthBar,
+					velocity: { x: 0, y: 0 }, // Add velocity tracking
+					previousPosition: { x, y } // Track previous position for velocity calculation
 				};
 
 				enemies.push(enemyData);
@@ -973,6 +1067,44 @@
 				return closestEnemy;
 			}
 
+			// Function to calculate predictive firing direction
+			function calculatePredictiveDirection(
+				towerX: number,
+				towerY: number,
+				enemy: (typeof enemies)[0],
+				projectileSpeed: number
+			) {
+				const enemySprite = enemy.sprite;
+				const enemyVelocity = enemy.velocity || { x: 0, y: 0 };
+
+				// Current position
+				const dx = enemySprite.x - towerX;
+				const dy = enemySprite.y - towerY;
+				const distance = Math.sqrt(dx * dx + dy * dy);
+
+				// If no velocity data or enemy is very close, use direct targeting
+				if (!enemyVelocity || distance < 50) {
+					return { x: dx / distance, y: dy / distance };
+				}
+
+				// Calculate time for projectile to reach current enemy position
+				const timeToTarget = distance / projectileSpeed;
+
+				// Predict where enemy will be
+				const predictedX = enemySprite.x + enemyVelocity.x * timeToTarget;
+				const predictedY = enemySprite.y + enemyVelocity.y * timeToTarget;
+
+				// Calculate direction to predicted position
+				const predictedDx = predictedX - towerX;
+				const predictedDy = predictedY - towerY;
+				const predictedDistance = Math.sqrt(predictedDx * predictedDx + predictedDy * predictedDy);
+
+				return {
+					x: predictedDx / predictedDistance,
+					y: predictedDy / predictedDistance
+				};
+			}
+
 			// Function to create a projectile
 			function createProjectile(
 				fromX: number,
@@ -988,18 +1120,28 @@
 				projectile.y = fromY;
 				app.stage.addChild(projectile);
 
-				// Calculate direction to target (but don't store the target reference)
-				const dx = targetEnemy.sprite.x - fromX;
-				const dy = targetEnemy.sprite.y - fromY;
-				const distance = Math.sqrt(dx * dx + dy * dy);
+				let direction;
+				const projectileSpeed = 200; // 200 pixels par seconde
+
+				if (smartFiringMode) {
+					// Use predictive firing
+					direction = calculatePredictiveDirection(fromX, fromY, targetEnemy, projectileSpeed);
+				} else {
+					// Use direct firing (current behavior)
+					const dx = targetEnemy.sprite.x - fromX;
+					const dy = targetEnemy.sprite.y - fromY;
+					const distance = Math.sqrt(dx * dx + dy * dy);
+					direction = { x: dx / distance, y: dy / distance };
+				}
 
 				projectiles.push({
 					sprite: projectile,
-					speed: 200, // 200 pixels par seconde
+					speed: projectileSpeed,
 					damage: damage,
-					dx: dx / distance, // Direction normalisée
-					dy: dy / distance
+					dx: direction.x, // Direction normalisée
+					dy: direction.y
 				});
+				projectileCount = projectiles.length; // Mettre à jour le compteur
 			}
 
 			// Variable to track current preview type
@@ -1152,10 +1294,17 @@
 				const gameTimeDelta = realTimeDelta * currentGameSpeed; // Apply game speed multiplier
 				gameTime += gameTimeDelta * 1000; // Convert back to milliseconds
 
+				// Update historical data for statistics
+				updateHistoricalData();
+
 				// Update enemies - pathfinding-based movement
 				for (let i = enemies.length - 1; i >= 0; i--) {
 					const enemyData = enemies[i];
 					const enemy = enemyData.sprite;
+
+					// Store previous position for velocity calculation
+					const previousX = enemyData.previousPosition.x;
+					const previousY = enemyData.previousPosition.y;
 
 					// Use pathfinding-based movement
 					if (enemyData.path && enemyData.path.length > 0) {
@@ -1218,6 +1367,17 @@
 							continue;
 						}
 					}
+
+					// Calculate velocity based on position change (for predictive firing)
+					const deltaTime = adjustedDeltaTime / 60.0; // Convert to seconds
+					if (deltaTime > 0) {
+						enemyData.velocity.x = (enemy.x - previousX) / deltaTime;
+						enemyData.velocity.y = (enemy.y - previousY) / deltaTime;
+					}
+
+					// Update previous position for next frame
+					enemyData.previousPosition.x = enemy.x;
+					enemyData.previousPosition.y = enemy.y;
 				}
 
 				// Update towers - target and shoot at enemies
@@ -1272,6 +1432,7 @@
 							// Remove projectile
 							app.stage.removeChild(projectile);
 							projectiles.splice(i, 1);
+							projectileCount = projectiles.length; // Mettre à jour le compteur
 
 							// Update health bar
 							updateEnemyHealthBar(enemyData);
@@ -1304,6 +1465,7 @@
 					) {
 						app.stage.removeChild(projectile);
 						projectiles.splice(i, 1);
+						projectileCount = projectiles.length; // Mettre à jour le compteur
 					}
 				}
 
@@ -1311,10 +1473,10 @@
 				spawnAccumulator += ticker.deltaTime; // Utiliser le deltaTime réel
 				// Ajuster le spawn rate en fonction de la vitesse pour maintenir un nombre constant d'ennemis
 				// Plus la vitesse est élevée, plus les ennemis doivent apparaître souvent
-				const baseTicksFor500ms = (baseSpawnInterval / 1000) * 60; // Convert ms to ticks at 60fps
-				const spawnThreshold = baseTicksFor500ms / Math.max(currentGameSpeed, 0.1); // Plus rapide quand vitesse élevée
+				const baseTicksForInterval = (actualSpawnInterval / 1000) * 60; // Convert ms to ticks at 60fps
+				const spawnThreshold = baseTicksForInterval / Math.max(currentGameSpeed, 0.1); // Plus rapide quand vitesse élevée
 
-				if (spawnAccumulator >= spawnThreshold) {
+				if (spawnAccumulator >= spawnThreshold && actualSpawnInterval !== Infinity) {
 					spawnEnemyFromEdge();
 					spawnAccumulator = 0; // Reset l'accumulateur
 				}
@@ -1369,11 +1531,62 @@
 	</div>
 </div>
 
-<!-- Compteur d'ennemis -->
-<div class="enemy-counter">
-	<div class="counter-content">
-		<span class="counter-icon">👹</span>
-		<span class="counter-text">Ennemis: {enemyCount}</span>
+<!-- Compteur d'ennemis et projectiles -->
+<div class="game-stats">
+	<div class="stats-content">
+		<div class="stat-row">
+			<div class="stat-info">
+				<span class="stat-icon">👹</span>
+				<div class="stat-details">
+					<span class="stat-text">Ennemis: {enemyCount}</span>
+					<span class="stat-median">M: {enemyMedian}</span>
+				</div>
+			</div>
+			<div class="stat-chart">
+				{@html generateMiniChart(enemyHistory, '#ff6b6b')}
+			</div>
+		</div>
+		<div class="stat-row">
+			<div class="stat-info">
+				<span class="stat-icon">💥</span>
+				<div class="stat-details">
+					<span class="stat-text">Projectiles: {projectileCount}</span>
+					<span class="stat-median">M: {projectileMedian}</span>
+				</div>
+			</div>
+			<div class="stat-chart">
+				{@html generateMiniChart(projectileHistory, '#ffd700')}
+			</div>
+		</div>
+		<div class="debug-controls">
+			<button
+				class="debug-toggle-btn"
+				class:active={showDebugOverlay}
+				on:click={toggleDebugOverlay}
+			>
+				<span class="debug-icon">🔍</span>
+				<span class="debug-text">Debug: {showDebugOverlay ? 'ON' : 'OFF'}</span>
+			</button>
+			<button class="smart-firing-btn" class:active={smartFiringMode} on:click={toggleSmartFiring}>
+				<span class="firing-icon">🎯</span>
+				<span class="firing-text">Smart: {smartFiringMode ? 'ON' : 'OFF'}</span>
+			</button>
+		</div>
+		<div class="spawn-control">
+			<div class="spawn-control-header">
+				<span class="spawn-icon">⚡</span>
+				<span class="spawn-label">Spawn Rate</span>
+				<span class="spawn-value"
+					>{actualSpawnInterval === Infinity ? 'PAUSED' : actualSpawnInterval + 'ms'}</span
+				>
+			</div>
+			<input type="range" class="spawn-slider" min="0" max="100" bind:value={spawnRateSlider} />
+			<div class="spawn-marks">
+				<span class="spawn-mark-left">PAUSE</span>
+				<span class="spawn-mark-center">500ms</span>
+				<span class="spawn-mark-right">100ms</span>
+			</div>
+		</div>
 	</div>
 </div>
 
@@ -1475,40 +1688,236 @@
 		text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
 	}
 
-	.enemy-counter {
+	.game-stats {
 		position: fixed;
-		top: 20px;
+		bottom: 20px;
 		right: 20px;
 		z-index: 1000;
-		background: rgba(0, 0, 0, 0.8);
+		background: rgba(0, 0, 0, 0.9);
 		border: 2px solid #ff4444;
 		border-radius: 8px;
-		padding: 8px 12px;
+		padding: 10px 12px;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+		min-width: 200px;
 	}
 
-	.counter-content {
+	.stats-content {
 		display: flex;
-		align-items: center;
+		flex-direction: column;
 		gap: 8px;
 	}
 
-	.counter-icon {
-		font-size: 16px;
+	.stat-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
 	}
 
-	.counter-text {
+	.stat-info {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex: 1;
+	}
+
+	.stat-details {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+
+	.stat-icon {
+		font-size: 14px;
+		min-width: 18px;
+	}
+
+	.stat-text {
 		color: #ff4444;
 		font-family: Arial, sans-serif;
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: bold;
 		text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+		line-height: 1.1;
+	}
+
+	.stat-median {
+		color: #ffaa44;
+		font-family: 'Courier New', monospace;
+		font-size: 10px;
+		font-weight: normal;
+		text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+		opacity: 0.8;
+		line-height: 1.1;
+	}
+
+	.stat-chart {
+		flex-shrink: 0;
+		opacity: 0.9;
+		filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.5));
+	}
+
+	.debug-controls {
+		margin-top: 12px;
+		padding-top: 10px;
+		border-top: 1px solid rgba(255, 255, 255, 0.2);
+		text-align: center;
+		display: flex;
+		gap: 8px;
+		justify-content: center;
+	}
+
+	.debug-toggle-btn,
+	.smart-firing-btn {
+		background: rgba(60, 60, 60, 0.9);
+		border: 2px solid #666;
+		border-radius: 6px;
+		color: #ccc;
+		padding: 8px 12px;
+		font-size: 11px;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		text-transform: uppercase;
+		font-weight: bold;
+		letter-spacing: 0.5px;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.debug-toggle-btn:hover,
+	.smart-firing-btn:hover {
+		background: rgba(80, 80, 80, 0.9);
+		border-color: #888;
+		color: #fff;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+	}
+
+	.debug-toggle-btn.active {
+		background: rgba(255, 140, 0, 0.9);
+		border-color: #ff8c00;
+		color: #fff;
+		box-shadow: 0 2px 6px rgba(255, 140, 0, 0.4);
+	}
+
+	.debug-toggle-btn.active:hover {
+		background: rgba(255, 165, 0, 0.9);
+		border-color: #ffa500;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 10px rgba(255, 140, 0, 0.6);
+	}
+
+	.smart-firing-btn.active {
+		background: rgba(0, 200, 100, 0.9);
+		border-color: #00c864;
+		color: #fff;
+		box-shadow: 0 2px 6px rgba(0, 200, 100, 0.4);
+	}
+
+	.smart-firing-btn.active:hover {
+		background: rgba(0, 220, 120, 0.9);
+		border-color: #00dc78;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 10px rgba(0, 200, 100, 0.6);
+	}
+
+	.spawn-control {
+		margin-top: 12px;
+		padding-top: 10px;
+		border-top: 1px solid rgba(255, 255, 255, 0.2);
+	}
+
+	.spawn-control-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 8px;
+		font-size: 11px;
+		font-weight: bold;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.spawn-icon {
+		font-size: 14px;
+	}
+
+	.spawn-label {
+		color: #ccc;
+		flex: 1;
+		text-align: center;
+	}
+
+	.spawn-value {
+		color: #ffd700;
+		font-size: 10px;
+		min-width: 60px;
+		text-align: right;
+	}
+
+	.spawn-slider {
+		width: 100%;
+		height: 6px;
+		background: rgba(255, 255, 255, 0.2);
+		border-radius: 3px;
+		outline: none;
+		appearance: none;
+		-webkit-appearance: none;
+		margin: 4px 0;
+	}
+
+	.spawn-slider::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		background: #ffd700;
+		cursor: pointer;
+		border: 2px solid #fff;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+		transition: all 0.2s ease;
+	}
+
+	.spawn-slider::-webkit-slider-thumb:hover {
+		transform: scale(1.1);
+		box-shadow: 0 3px 6px rgba(0, 0, 0, 0.4);
+	}
+
+	.spawn-slider::-moz-range-thumb {
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		background: #ffd700;
+		cursor: pointer;
+		border: 2px solid #fff;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+		transition: all 0.2s ease;
+	}
+
+	.spawn-marks {
+		display: flex;
+		justify-content: space-between;
+		font-size: 9px;
+		color: #888;
+		margin-top: 2px;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+	}
+
+	.spawn-mark-left,
+	.spawn-mark-right {
+		font-weight: bold;
+	}
+
+	.spawn-mark-center {
+		color: #aaa;
 	}
 
 	.test-line-info {
 		position: fixed;
 		bottom: 20px;
-		right: 20px;
+		right: 180px;
 		z-index: 1000;
 		background: rgba(0, 0, 0, 0.85);
 		border: 2px solid #333;
