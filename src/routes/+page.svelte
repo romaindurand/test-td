@@ -15,6 +15,13 @@
 	} from '../lib/stores/gameState';
 	import { PathfindingManager } from '../lib/simple-pathfinding-manager';
 	import type { Point } from '../lib/pathfinding';
+	import {
+		generatePoints,
+		generateVoronoiPolygons,
+		computeDensity,
+		filterPolygonsAwayFromPoint,
+		shrinkPolygons
+	} from '../lib/city-generator';
 
 	let root: HTMLDivElement;
 	let pathfinder: PathfindingManager;
@@ -878,43 +885,62 @@
 			// Initialize obstacles array for pathfinder
 			const obstaclePoints: Point[][] = [];
 
-			// 10 random blob obstacles
+			// Generate procedural city using Voronoi diagrams and Perlin noise
 			const obstacles: Graphics[] = [];
-			const margin = 100; // Marge pour éviter que les obstacles soient trop près des bords
-			for (let i = 0; i < 10; i++) {
-				const obstacle = new Graphics();
 
-				// Generate random blob shape
-				const centerX = margin + Math.random() * (app.screen.width - 2 * margin);
-				const centerY = margin + Math.random() * (app.screen.height - 2 * margin);
-				const baseRadius = 40 + Math.random() * 40; // Rayon entre 40 et 80
-				const points: Point[] = [];
+			console.log('Generating procedural city...');
 
-				// Generate blob points
-				const numPoints = 8;
-				for (let j = 0; j < numPoints; j++) {
-					const angle = (j / numPoints) * Math.PI * 2;
-					const radiusVariation = 0.5 + Math.random() * 0.5; // Variation de 0.5 à 1
-					const radius = baseRadius * radiusVariation;
-					const x = centerX + Math.cos(angle) * radius;
-					const y = centerY + Math.sin(angle) * radius;
-					points.push({ x, y });
+			// Générer les points de base pour le diagramme de Voronoi (utilise les dimensions de l'écran)
+			const numPoints = 50; // Nombre de points pour générer la ville
+			const seedPoints = generatePoints(numPoints, app.screen.width, app.screen.height);
+
+			// Générer les polygones de Voronoi avec densité
+			const cityPolygons = generateVoronoiPolygons(seedPoints, app.screen.width, app.screen.height);
+
+			// Filtrer les polygones selon leur densité pour ne garder que les zones "construites"
+			const threshold = 0.1; // Seuil de densité pour les bâtiments
+			let buildings = cityPolygons.filter((p) => p.density > threshold);
+
+			// Supprimer les polygones qui recouvrent le lapin vert
+			const greenBunnyPosition = { x: centralBunny.x, y: centralBunny.y };
+			buildings = filterPolygonsAwayFromPoint(buildings, greenBunnyPosition);
+
+			// Réduire la taille des bâtiments pour créer des rues
+			buildings = shrinkPolygons(buildings, 0.85); // Réduction de 15% pour créer des espaces
+
+			console.log(
+				`Generated ${buildings.length} buildings from ${cityPolygons.length} polygons (excluding green bunny area)`
+			);
+
+			// Convertir les polygones en obstacles graphiques
+			for (const building of buildings) {
+				const cityBlock = new Graphics();
+
+				// Couleur basée sur la densité (plus dense = plus foncé)
+				const densityColor = Math.floor((building.density + 1) * 0.5 * 128) + 64; // Entre 64 et 192
+				const color = (densityColor << 16) | (densityColor << 8) | densityColor; // Nuances de gris
+
+				cityBlock.beginFill(color);
+				cityBlock.lineStyle(1, 0x444444, 1);
+
+				// Dessiner le polygone de Voronoi
+				if (building.vertices.length > 0) {
+					cityBlock.moveTo(building.vertices[0].x, building.vertices[0].y);
+					for (let i = 1; i < building.vertices.length; i++) {
+						cityBlock.lineTo(building.vertices[i].x, building.vertices[i].y);
+					}
+					cityBlock.closePath();
 				}
 
-				// Draw the blob using the correct PixiJS v8 API
-				obstacle.beginFill(0x444444); // Gris foncé
-				obstacle.lineStyle(2, 0x222222, 1); // Bordure gris très foncé
-				obstacle.moveTo(points[0].x, points[0].y);
-				for (let j = 1; j < points.length; j++) {
-					obstacle.lineTo(points[j].x, points[j].y);
-				}
-				obstacle.closePath();
-				obstacle.endFill();
+				cityBlock.endFill();
+				cameraContainer.addChild(cityBlock);
+				obstacles.push(cityBlock);
 
-				cameraContainer.addChild(obstacle);
-				obstacles.push(obstacle);
-				obstaclePoints.push(points);
+				// Ajouter les points d'obstacle pour le pathfinding
+				obstaclePoints.push(building.vertices);
 			}
+
+			console.log(`Total obstacles created: ${obstacles.length}`);
 
 			// Initialize obstacles in the pathfinding manager
 			for (const obstaclePointsData of obstaclePoints) {
