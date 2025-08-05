@@ -20,6 +20,8 @@
 	let pathfinder: PathfindingManager;
 	let previewSprite: Sprite | Graphics | null = null;
 	let app: Application;
+	let gameContainer: Container; // Container principal pour la caméra
+	let cameraContainer: Container; // Container de la caméra pour zoom/déplacement
 	let expandedObstacleGraphics: (Graphics | Text)[] = [];
 	let expandedObstacleContainer: Container;
 	let hoverPathGraphics: (Graphics | Text)[] = [];
@@ -31,6 +33,14 @@
 	let projectileCount = 0; // Compteur de projectiles à l'écran
 	let gameStartTime = 0; // Temps de début de partie (en millisecondes)
 	let gameTime = 0; // Temps de jeu ajusté selon la vitesse (en millisecondes)
+
+	// Camera system variables
+	let cameraX = 0;
+	let cameraY = 0;
+	let cameraZoom = 1;
+	let targetZoom = 1; // Target zoom for smooth transitions
+	let zoomAnimationSpeed = 0.2; // Speed of zoom animation (0.1 = slow, 0.3 = fast)
+	let keysPressed = new Set<string>();
 
 	// Debug visualization toggle
 	let showDebugOverlay = true;
@@ -265,7 +275,7 @@
 			lengthText.x = midX;
 			lengthText.y = midY - 10; // Décaler vers le haut
 
-			app.stage.addChild(lengthText);
+			cameraContainer.addChild(lengthText);
 			hoverPathGraphics.push(lengthText);
 		}
 
@@ -294,10 +304,10 @@
 		// Appliquer le style APRÈS avoir dessiné tout le chemin (API PixiJS v8)
 		pathGraphic.stroke({ width: 3, color: 0xffff00, alpha: 0.9 });
 
-		// Essayer d'ajouter directement au stage si le container pose problème
-		app.stage.addChild(pathGraphic);
+		// Ajouter au container de la caméra pour qu'il suive le zoom/déplacement
+		cameraContainer.addChild(pathGraphic);
 		// S'assurer que le chemin est au-dessus de tout le reste
-		app.stage.setChildIndex(pathGraphic, app.stage.children.length - 1);
+		cameraContainer.setChildIndex(pathGraphic, cameraContainer.children.length - 1);
 		hoverPathGraphics.push(pathGraphic);
 	}
 
@@ -498,7 +508,7 @@
 		}
 
 		pathGraphic.stroke({ width: 4, color: 0x00ff00, alpha: 0.9 }); // Vert pour le chemin optimal
-		app.stage.addChild(pathGraphic);
+		cameraContainer.addChild(pathGraphic);
 		testLineGraphics.push(pathGraphic);
 
 		// Add distance labels on each segment
@@ -527,7 +537,7 @@
 			lengthText.x = midX;
 			lengthText.y = midY - 12;
 
-			app.stage.addChild(lengthText);
+			cameraContainer.addChild(lengthText);
 			testLineGraphics.push(lengthText);
 		}
 
@@ -540,7 +550,7 @@
 			cornerHighlight.drawCircle(optimalCorner.x, optimalCorner.y, 12);
 			cornerHighlight.endFill();
 
-			app.stage.addChild(cornerHighlight);
+			cameraContainer.addChild(cornerHighlight);
 			testLineGraphics.push(cornerHighlight);
 		}
 	}
@@ -557,7 +567,7 @@
 		const lineColor = testResult.intersects ? 0xff0000 : 0x00ff00;
 		lineGraphic.stroke({ width: 3, color: lineColor, alpha: 0.8 });
 
-		app.stage.addChild(lineGraphic);
+		cameraContainer.addChild(lineGraphic);
 		testLineGraphics.push(lineGraphic);
 
 		// Dessiner les points d'intersection
@@ -567,7 +577,7 @@
 			intersectionPoint.drawCircle(point.x, point.y, 5);
 			intersectionPoint.endFill();
 
-			app.stage.addChild(intersectionPoint);
+			cameraContainer.addChild(intersectionPoint);
 			testLineGraphics.push(intersectionPoint);
 		});
 	} // Function to clear test line
@@ -664,7 +674,7 @@
 						distanceText.anchor.set(0.5);
 						distanceText.x = corner.x;
 						distanceText.y = corner.y - 15; // Décaler vers le haut
-						app.stage.addChild(distanceText);
+						cameraContainer.addChild(distanceText);
 						expandedObstacleGraphics.push(distanceText);
 					} else if (distance === null || distance === Infinity) {
 						// Afficher un "X" pour indiquer que le goal n'est pas accessible
@@ -680,7 +690,7 @@
 						inaccessibleText.anchor.set(0.5);
 						inaccessibleText.x = corner.x;
 						inaccessibleText.y = corner.y - 15; // Décaler vers le haut
-						app.stage.addChild(inaccessibleText);
+						cameraContainer.addChild(inaccessibleText);
 						expandedObstacleGraphics.push(inaccessibleText);
 					}
 
@@ -698,10 +708,8 @@
 							debugLine.lineTo(goalPos.x, goalPos.y);
 							debugLine.stroke({ width: 2, color: 0xff0000, alpha: 0.5 }); // Rouge translucide
 
-							app.stage.addChild(debugLine);
-							hoverPathGraphics.push(debugLine);
-
-							// Ne pas afficher de chemin si le goal n'est pas accessible
+							cameraContainer.addChild(debugLine);
+							hoverPathGraphics.push(debugLine); // Ne pas afficher de chemin si le goal n'est pas accessible
 							// clearHoverPath(); // Commenté pour garder la ligne debug
 						}
 					});
@@ -710,8 +718,8 @@
 						clearHoverPath();
 					});
 
-					// Ajouter directement au stage pour éviter les problèmes de hiérarchie
-					app.stage.addChild(cornerGraphic);
+					// Ajouter directement au container de la caméra pour le zoom/pan
+					cameraContainer.addChild(cornerGraphic);
 					expandedObstacleGraphics.push(cornerGraphic);
 				});
 			});
@@ -727,21 +735,130 @@
 		smartFiringMode = !smartFiringMode;
 	}
 
+	// Camera system functions
+	function updateCamera() {
+		if (cameraContainer) {
+			cameraContainer.x = -cameraX * cameraZoom + app.screen.width / 2;
+			cameraContainer.y = -cameraY * cameraZoom + app.screen.height / 2;
+			cameraContainer.scale.set(cameraZoom);
+		}
+	}
+
+	function screenToWorld(screenX: number, screenY: number): Point {
+		return {
+			x: (screenX - app.screen.width / 2) / cameraZoom + cameraX,
+			y: (screenY - app.screen.height / 2) / cameraZoom + cameraY
+		};
+	}
+
+	function worldToScreen(worldX: number, worldY: number): Point {
+		return {
+			x: (worldX - cameraX) * cameraZoom + app.screen.width / 2,
+			y: (worldY - cameraY) * cameraZoom + app.screen.height / 2
+		};
+	}
+
+	function handleZoom(event: WheelEvent) {
+		event.preventDefault();
+
+		const mouseX = event.clientX - app.canvas.getBoundingClientRect().left;
+		const mouseY = event.clientY - app.canvas.getBoundingClientRect().top;
+
+		// Get world position before zoom
+		const worldPos = screenToWorld(mouseX, mouseY);
+
+		// Apply zoom to target instead of current zoom
+		const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
+		targetZoom = Math.max(0.1, Math.min(5, targetZoom * zoomFactor));
+
+		// Store mouse position for smooth zoom centering
+		const targetWorldPos = {
+			x: (mouseX - app.screen.width / 2) / targetZoom + cameraX,
+			y: (mouseY - app.screen.height / 2) / targetZoom + cameraY
+		};
+
+		// Calculate camera adjustment needed
+		const deltaX = worldPos.x - targetWorldPos.x;
+		const deltaY = worldPos.y - targetWorldPos.y;
+
+		// Adjust camera position to keep mouse position fixed during zoom
+		cameraX += deltaX;
+		cameraY += deltaY;
+	}
+
+	function animateZoom() {
+		// Smooth zoom animation
+		if (Math.abs(cameraZoom - targetZoom) > 0.001) {
+			const diff = targetZoom - cameraZoom;
+			cameraZoom += diff * zoomAnimationSpeed;
+
+			// Snap to target when very close to avoid infinite tiny movements
+			if (Math.abs(diff) < 0.001) {
+				cameraZoom = targetZoom;
+			}
+
+			updateCamera();
+		}
+	}
+
+	function handleKeyDown(event: KeyboardEvent) {
+		keysPressed.add(event.key.toLowerCase());
+	}
+
+	function handleKeyUp(event: KeyboardEvent) {
+		keysPressed.delete(event.key.toLowerCase());
+	}
+
+	function updateCameraMovement() {
+		const moveSpeed = 5 / cameraZoom; // Movement speed inversely proportional to zoom
+
+		if (keysPressed.has('z') || keysPressed.has('w')) cameraY -= moveSpeed;
+		if (keysPressed.has('s')) cameraY += moveSpeed;
+		if (keysPressed.has('q') || keysPressed.has('a')) cameraX -= moveSpeed;
+		if (keysPressed.has('d')) cameraX += moveSpeed;
+
+		updateCamera();
+	}
+
 	onMount(() => {
 		app = new Application();
 		(async function () {
 			// Create a new application
 
 			// Initialize the application
-			await app.init({ background: '#1099bb', resizeTo: window });
+			await app.init({ background: '#000000', resizeTo: window }); // Fond noir pour les zones hors viewport
 
 			// Initialize game timer
 			gameStartTime = Date.now();
 			gameTime = 0;
 
+			// Initialize camera system
+			cameraX = 0;
+			cameraY = 0;
+			cameraZoom = 1;
+			targetZoom = 1;
+
 			// Append the application canvas to the document body
 			// eslint-disable-next-line svelte/no-dom-manipulating
 			root.appendChild(app.canvas);
+
+			// Create camera system containers
+			gameContainer = new Container();
+			cameraContainer = new Container();
+			gameContainer.addChild(cameraContainer);
+			app.stage.addChild(gameContainer);
+
+			// Create game world background (visible area)
+			const gameWorldBackground = new Graphics();
+			gameWorldBackground.beginFill(0x1099bb); // Couleur de fond du jeu
+			gameWorldBackground.drawRect(0, 0, app.screen.width, app.screen.height);
+			gameWorldBackground.endFill();
+			cameraContainer.addChild(gameWorldBackground);
+
+			// Initialize camera position (center of the game world)
+			cameraX = app.screen.width / 2;
+			cameraY = app.screen.height / 2;
+			updateCamera();
 
 			// Load the bunny texture
 			const texture = await Assets.load('https://pixijs.com/assets/bunny.png');
@@ -753,7 +870,7 @@
 			centralBunny.y = app.screen.height / 2;
 			centralBunny.anchor.set(0.5);
 			centralBunny.tint = 0x00ff00; // Vert pour le lapin cible
-			app.stage.addChild(centralBunny);
+			cameraContainer.addChild(centralBunny);
 
 			// Create pathfinding system
 			pathfinder = new PathfindingManager();
@@ -794,7 +911,7 @@
 				obstacle.closePath();
 				obstacle.endFill();
 
-				app.stage.addChild(obstacle);
+				cameraContainer.addChild(obstacle);
 				obstacles.push(obstacle);
 				obstaclePoints.push(points);
 			}
@@ -811,11 +928,11 @@
 			expandedObstacleContainer = new Container();
 			expandedObstacleContainer.eventMode = 'static';
 			expandedObstacleContainer.interactiveChildren = true;
-			app.stage.addChild(expandedObstacleContainer);
+			cameraContainer.addChild(expandedObstacleContainer);
 
 			// Create hover path visualization container
 			hoverPathContainer = new Container();
-			app.stage.addChild(hoverPathContainer);
+			cameraContainer.addChild(hoverPathContainer);
 
 			// Update visuals
 			updateExpandedObstacleVisuals();
@@ -860,11 +977,11 @@
 				enemy.tint = 0xff0000; // Rouge pour les ennemis
 				enemy.x = x;
 				enemy.y = y;
-				app.stage.addChild(enemy);
+				cameraContainer.addChild(enemy);
 
 				// Create health bar
 				const healthBar = new Graphics();
-				app.stage.addChild(healthBar);
+				cameraContainer.addChild(healthBar);
 
 				// Calculate initial path using pathfinding
 				const initialPath = calculateEnemyPath({ x, y });
@@ -971,7 +1088,7 @@
 				tower.tint = 0xffff00; // Jaune pour les tours
 				tower.x = x;
 				tower.y = y;
-				app.stage.addChild(tower);
+				cameraContainer.addChild(tower);
 
 				// Add tower to towers array with properties
 				towers.push({
@@ -1039,7 +1156,7 @@
 					});
 				}
 
-				app.stage.addChild(wall);
+				cameraContainer.addChild(wall);
 				pathfinder.addObstacle(corners);
 
 				// Update visuals after adding obstacle
@@ -1118,7 +1235,7 @@
 				projectile.endFill();
 				projectile.x = fromX;
 				projectile.y = fromY;
-				app.stage.addChild(projectile);
+				cameraContainer.addChild(projectile);
 
 				let direction;
 				const projectileSpeed = 200; // 200 pixels par seconde
@@ -1151,7 +1268,7 @@
 			function updatePreview(selectedType: string, mouseX: number, mouseY: number) {
 				// Remove old preview
 				if (previewSprite) {
-					app.stage.removeChild(previewSprite);
+					cameraContainer.removeChild(previewSprite);
 					previewSprite = null;
 				}
 
@@ -1194,7 +1311,7 @@
 				if (previewSprite) {
 					previewSprite.x = mouseX;
 					previewSprite.y = mouseY;
-					app.stage.addChild(previewSprite);
+					cameraContainer.addChild(previewSprite);
 				}
 
 				currentPreviewType = selectedType;
@@ -1206,6 +1323,9 @@
 			app.stage.on('pointerdown', (event) => {
 				const position = event.global;
 
+				// Convert screen coordinates to world coordinates
+				const worldPos = screenToWorld(position.x, position.y);
+
 				// Utiliser le type de lapin sélectionné dans le store
 				// Ne rien faire si "aucun outil" est sélectionné
 				if ($selectedBunnyType === 'none') {
@@ -1213,11 +1333,11 @@
 				}
 
 				if ($selectedBunnyType === 'red') {
-					spawnEnemyAt(position.x, position.y);
+					spawnEnemyAt(worldPos.x, worldPos.y);
 				} else if ($selectedBunnyType === 'green') {
-					spawnTowerAt(position.x, position.y);
+					spawnTowerAt(worldPos.x, worldPos.y);
 				} else if ($selectedBunnyType === 'wall') {
-					spawnWallAt(position.x, position.y);
+					spawnWallAt(worldPos.x, worldPos.y);
 				}
 			});
 
@@ -1225,8 +1345,9 @@
 			app.stage.on('pointermove', (event) => {
 				const position = event.global;
 
-				// Update mouse position for test line
-				mousePosition = { x: position.x, y: position.y };
+				// Convert screen coordinates to world coordinates
+				const worldPos = screenToWorld(position.x, position.y);
+				mousePosition = { x: worldPos.x, y: worldPos.y };
 
 				// Handle test line tool
 				if ($selectedBunnyType === 'test-line') {
@@ -1264,14 +1385,14 @@
 
 				// Update preview only if selection changed or preview doesn't exist
 				if ($selectedBunnyType !== currentPreviewType || !previewSprite) {
-					updatePreview($selectedBunnyType, position.x, position.y);
+					updatePreview($selectedBunnyType, worldPos.x, worldPos.y);
 				} else if (previewSprite) {
 					// Make sure preview is visible
 					previewSprite.visible = true;
 
 					// Just update position
-					previewSprite.x = position.x;
-					previewSprite.y = position.y;
+					previewSprite.x = worldPos.x;
+					previewSprite.y = worldPos.y;
 
 					// Update wall rotation if needed
 					if ($selectedBunnyType === 'wall') {
@@ -1281,8 +1402,17 @@
 				}
 			});
 
+			// Add camera controls
+			window.addEventListener('wheel', handleZoom, { passive: false });
+			window.addEventListener('keydown', handleKeyDown);
+			window.addEventListener('keyup', handleKeyUp);
+
 			// Game loop
 			app.ticker.add((ticker) => {
+				// Update camera movement and zoom animation
+				updateCameraMovement();
+				animateZoom();
+
 				// Get current game speed
 				const currentGameSpeed = $gameSpeed;
 				if (currentGameSpeed === 0) return; // Game is paused
@@ -1334,8 +1464,8 @@
 								if (enemyData.currentPathIndex >= enemyData.path.length) {
 									// Reached goal - damage player and remove enemy
 									takeDamage();
-									app.stage.removeChild(enemy);
-									app.stage.removeChild(enemyData.healthBar);
+									cameraContainer.removeChild(enemy);
+									cameraContainer.removeChild(enemyData.healthBar);
 									enemies.splice(i, 1);
 									enemyCount = enemies.length; // Mettre à jour le compteur
 									continue;
@@ -1360,8 +1490,8 @@
 						} else {
 							// Reached goal - damage player and remove enemy
 							takeDamage();
-							app.stage.removeChild(enemy);
-							app.stage.removeChild(enemyData.healthBar);
+							cameraContainer.removeChild(enemy);
+							cameraContainer.removeChild(enemyData.healthBar);
 							enemies.splice(i, 1);
 							enemyCount = enemies.length; // Mettre à jour le compteur
 							continue;
@@ -1430,7 +1560,7 @@
 							enemyData.currentHealth -= projectileData.damage;
 
 							// Remove projectile
-							app.stage.removeChild(projectile);
+							cameraContainer.removeChild(projectile);
 							projectiles.splice(i, 1);
 							projectileCount = projectiles.length; // Mettre à jour le compteur
 
@@ -1440,8 +1570,8 @@
 							// Check if enemy is dead
 							if (enemyData.currentHealth <= 0) {
 								// Remove enemy and its health bar
-								app.stage.removeChild(enemy);
-								app.stage.removeChild(enemyData.healthBar);
+								cameraContainer.removeChild(enemy);
+								cameraContainer.removeChild(enemyData.healthBar);
 								enemies.splice(j, 1);
 								enemyCount = enemies.length; // Mettre à jour le compteur
 							}
@@ -1463,7 +1593,7 @@
 						projectile.y < -50 ||
 						projectile.y > app.screen.height + 50
 					) {
-						app.stage.removeChild(projectile);
+						cameraContainer.removeChild(projectile);
 						projectiles.splice(i, 1);
 						projectileCount = projectiles.length; // Mettre à jour le compteur
 					}
@@ -1497,9 +1627,14 @@
 		})();
 
 		return () => {
+			// Remove event listeners
+			window.removeEventListener('wheel', handleZoom);
+			window.removeEventListener('keydown', handleKeyDown);
+			window.removeEventListener('keyup', handleKeyUp);
+
 			// Cleanup preview sprite
 			if (previewSprite) {
-				app.stage.removeChild(previewSprite);
+				cameraContainer.removeChild(previewSprite);
 				previewSprite = null;
 			}
 
